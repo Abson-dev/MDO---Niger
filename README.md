@@ -1,7 +1,8 @@
 # Malaria Surveillance Data Dashboard (Niger 2024)
 
-![Malaria Dashboard Preview](https://via.placeholder.com/800x400.png?text=Malaria+Surveillance+Dashboard)  
-*Interactive dashboard for visualizing malaria trends in Niger, 2024*
+ 
+*Interactive dashboard for visualizing malaria trends in Niger, 2024*  
+*Last Updated: 07:18 PM CEST, Friday, July 04, 2025*
 
 Welcome to the **Malaria Surveillance Data Dashboard**, a Shiny application designed to analyze and visualize suspected malaria cases in Niger for 2024, using data from the `MDO 2024 S43.xls` Excel file (specifically the `Palu Susp` sheet). This dashboard transforms raw, complex epidemiological data into intuitive, interactive visualizations, enabling public health professionals to monitor malaria trends across districts with ease.
 
@@ -18,6 +19,24 @@ Malaria remains a critical public health challenge in Niger. This dashboard empo
 - Delivering **clean, processed data** from complex Excel files, ready for analysis and reporting.
 
 Built with R and Shiny, the dashboard combines robust data processing with modern, responsive design to support evidence-based decision-making.
+
+## 📸 Dashboard Preview
+
+![Malaria Dashboard Screenshot](https://via.placeholder.com/800x400.png?text=Malaria+Surveillance+Dashboard)  
+*Note: This is a placeholder image. To include your own screenshot, follow the instructions below:*
+- **Take a Screenshot**: Run the app (`app.R`), navigate to the desired tab (e.g., Overview or District Details), and capture a screenshot.
+- **Upload the Image**: Save the screenshot (e.g., as `screenshots/dashboard.png`) and upload it to a `screenshots` folder in your repository:
+  ```bash
+  mkdir screenshots
+  git add screenshots/dashboard.png
+  git commit -m "Add dashboard screenshot"
+  git push origin main
+  ```
+- **Update the Link**: Replace the placeholder URL above with:
+  ```markdown
+  ![Malaria Dashboard Screenshot](screenshots/dashboard.png)
+  ```
+This will display your custom image, showcasing the dashboard’s interface.
 
 ## 🚀 Features
 
@@ -132,10 +151,11 @@ The dashboard processes complex malaria surveillance data through a robust pipel
 - `app.R`: Main Shiny application script.
 - `MDO 2024 S43.xls`: Data file (not included; provide your own).
 - `README.md`: This guide.
+- `screenshots/` (optional): Folder for dashboard screenshots.
 
 ## 📞 Contact
 
-For questions or feedback, contact Aboubacar Hema at [aboubacarhema94@gmail.com](mailto:aboubacarhema94@gmail.com).
+For questions or feedback, contact Médecins Sans Frontières at [jobs@msf.org](mailto:jobs@msf.org).
 
 ## 🔧 Potential Enhancements
 
