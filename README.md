@@ -155,7 +155,7 @@ The dashboard processes complex malaria surveillance data through a robust pipel
 
 ## 📞 Contact
 
-For questions or feedback, contact Médecins Sans Frontières at [jobs@msf.org](mailto:jobs@msf.org).
+For questions or feedback, contact Aboubacar Hema at [aboubacarhema94@gmail.com](mailto:aboubacarhema94@gmail.com).
 
 ## 🔧 Potential Enhancements
 
