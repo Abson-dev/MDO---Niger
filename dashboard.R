@@ -2,12 +2,13 @@
 library(shiny)
 library(tidyverse)
 library(readxl)
-library(readr)
-library(janitor)
-library(DT)
-library(plotly)
-library(bslib)
-library(scales)
+library(readr) # For parse_number()
+library(janitor) # For clean_names()
+library(DT) # For interactive data tables
+library(plotly) # For interactive plots
+library(bslib) # For modern design/theming
+library(scales) # For comma formatting in plots
+library(jsonlite) # Included in your new code, though not explicitly used for JSON parsing in this version
 
 # --- Global Data Loading and Cleaning ---
 file_path <- "MDO 2024 S43.xls"
@@ -143,11 +144,12 @@ health_data_for_shiny <- map_dfr(sheet_names, ~process_sheet(file_path, .x))
 
 # Check if data is empty
 if (nrow(health_data_for_shiny) == 0) {
+  showNotification("No data loaded from either sheet. Please check the Excel file and sheet names.", type = "error")
   stop("No data loaded from either sheet. Please check the Excel file and sheet names.")
 }
 
 # Get unique districts and metrics
-unique_districts <- sort(unique(health_data_for_shiny$district))
+unique_districts <- sort(unique(health_data_for_shiny$district[!is.na(health_data_for_shiny$district) & health_data_for_shiny$district != ""]))
 unique_metrics_overall <- c("Cases", "Deaths")
 
 # --- Shiny UI ---
@@ -231,6 +233,20 @@ ui <- page_fluid(
     ),
     
     tabPanel(
+      title = span(icon("chart-bar"), "Sheet Comparison"),
+      h2("Compare Suspected vs. Confirmed Malaria Data"),
+      p("Select a metric to compare trends between suspected ('Palu Susp') and confirmed ('Palu confirmé') malaria cases."),
+      selectInput("comparison_metric_select", "Select Metric for Comparison:",
+                  choices = c("Cases", "Deaths", "Attack_Rate", "Fatality_Rate"),
+                  selected = "Cases"),
+      hr(),
+      card(
+        card_header(h4(icon("chart-line"), "Comparison Trend")),
+        plotlyOutput("comparison_plot", height = "400px")
+      )
+    ),
+    
+    tabPanel(
       title = span(icon("database"), "Full Data Table"),
       h2("Complete Cleaned Malaria Surveillance Data"),
       p("Select a sheet to explore the full dataset."),
@@ -290,7 +306,9 @@ server <- function(input, output, session) {
     Cases = "#1F77B4",
     Deaths = "#D62728",
     Attack_Rate = "#2CA02C",
-    Fatality_Rate = "#9467BD"
+    Fatality_Rate = "#9467BD",
+    Suspected = "#1F77B4",
+    Confirmed = "#D62728"
   )
   
   # Reactive Data for Overview Tab
@@ -306,8 +324,11 @@ server <- function(input, output, session) {
         Total_Population = sum(unique(population), na.rm = TRUE),
         .groups = 'drop'
       ) %>%
+      # Re-introduced complete() to fill missing weeks with 0 for continuous lines
+      complete(week_num = full_seq(week_num, period = 1),
+               fill = list(Total_Cases = 0, Total_Deaths = 0, Total_Population = 0)) %>% 
       mutate(
-        Overall_Attack_Rate = (Total_Cases / Total_Population) * 100000,
+        Overall_Attack_Rate = ifelse(Total_Population > 0, (Total_Cases / Total_Population) * 100000, 0),
         Overall_Fatality_Rate = ifelse(Total_Cases > 0, (Total_Deaths / Total_Cases) * 100, 0)
       ) %>%
       arrange(week_num)
@@ -349,8 +370,10 @@ server <- function(input, output, session) {
     } else {
       p <- ggplot(plot_data, aes(x = week_num, y = .data[[y_col_name]],
                                  text = paste("Week:", week_num, "<br>",
-                                              selected_metric_overall, ":", round(.data[[y_col_name]], 2)))) +
-        geom_point(color = metric_colors[[selected_metric_overall]], size = 1, alpha = 0.9) +
+                                              selected_metric_overall, ":", round(.data[[y_col_name]], 2)),
+                                 group = 1)) + 
+        geom_line(color = metric_colors[[selected_metric_overall]], size = 0.8) + # Adjusted line size
+        geom_point(color = metric_colors[[selected_metric_overall]], size = 1.8, alpha = 0.9) + # Adjusted point size
         labs(
           title = paste("Overall Malaria", selected_metric_overall, "Trend (", input$sheet_select_overview, ") - 2024"),
           x = "Epidemiological Week",
@@ -373,7 +396,7 @@ server <- function(input, output, session) {
           xaxis = list(fixedrange = FALSE),
           yaxis = list(fixedrange = FALSE),
           modebar = list(
-            bgcolor = "transparent",
+            bgcolor= "transparent",
             color = "#000000",
             activecolor = metric_colors[[selected_metric_overall]]
           )
@@ -400,7 +423,21 @@ server <- function(input, output, session) {
         Fatality_Rate = as.numeric(Fatality_Rate)
       ) %>%
       filter(!is.na(week_num)) %>%
-      arrange(week_num)
+      arrange(week_num) %>%
+      # Re-introduced complete() to fill missing weeks with 0 for continuous lines
+      group_by(district, region) %>% # Group by district and region to preserve them during complete()
+      complete(week_num = full_seq(week_num, period = 1),
+               fill = list(Cases = 0, Deaths = 0, Attack_Rate = 0, Fatality_Rate = 0)) %>% 
+      ungroup() %>%
+      # Re-fill population for newly completed rows if it's NA.
+      group_by(district) %>%
+      fill(population, .direction = "downup") %>% # Fill NA population from existing values in the district
+      ungroup() %>%
+      # Recalculate rates after filling with 0s for cases/deaths and ensuring population
+      mutate(
+        Attack_Rate = ifelse(population > 0, (Cases / population) * 100000, 0),
+        Fatality_Rate = ifelse(Cases > 0, (Deaths / Cases) * 100, 0)
+      )
   })
   
   # Reactive Caption for District Summary Table
@@ -446,8 +483,10 @@ server <- function(input, output, session) {
       } else {
         p <- ggplot(plot_data, aes(x = week_num, y = .data[[metric_name]],
                                    text = paste("Week:", week_num, "<br>",
-                                                metric_name, ":", round(.data[[metric_name]], 2)))) +
-          geom_point(color = color, size = 1, alpha = 0.9) +
+                                                metric_name, ":", round(.data[[metric_name]], 2)),
+                                   group = 1)) + 
+          geom_line(color = color, size = 0.8) + # Adjusted line size
+          geom_point(color = color, size = 1.8, alpha = 0.9) + # Adjusted point size
           labs(
             title = paste("Malaria", metric_name, "in", input$selected_district, "(", input$sheet_select_district, ") - 2024"),
             x = "Epidemiological Week",
@@ -489,6 +528,113 @@ server <- function(input, output, session) {
   output$deaths_plot <- render_district_plotly("Deaths", "Number of Deaths", metric_colors$Deaths)
   output$attack_rate_plot <- render_district_plotly("Attack_Rate", "Attack Rate (per 100,000)", metric_colors$Attack_Rate)
   output$fatality_rate_plot <- render_district_plotly("Fatality_Rate", "Fatality Rate (%)", metric_colors$Fatality_Rate)
+  
+  # Reactive Data for Comparison Tab
+  comparison_data <- reactive({
+    health_data_for_shiny %>%
+      filter(!is.na(week)) %>%
+      mutate(week_num = as.numeric(week)) %>%
+      group_by(Sheet, week_num) %>%
+      summarise(
+        Total_Cases = sum(Cases, na.rm = TRUE),
+        Total_Deaths = sum(Deaths, na.rm = TRUE),
+        Total_Population = sum(unique(population), na.rm = TRUE),
+        .groups = 'drop'
+      ) %>%
+      mutate(
+        Attack_Rate = (Total_Cases / Total_Population) * 100000,
+        Fatality_Rate = ifelse(Total_Cases > 0, (Total_Deaths / Total_Cases) * 100, 0)
+      ) %>%
+      pivot_wider(
+        names_from = Sheet,
+        values_from = c(Total_Cases, Total_Deaths, Attack_Rate, Fatality_Rate),
+        names_glue = "{.value}_{Sheet}"
+      ) %>%
+      arrange(week_num) %>%
+      complete(week_num = seq(min(week_num, na.rm = TRUE), max(week_num, na.rm = TRUE), by = 1),
+               fill = list(
+                 `Total_Cases_Palu Susp` = 0,
+                 `Total_Cases_Palu confirmé` = 0,
+                 `Total_Deaths_Palu Susp` = 0,
+                 `Total_Deaths_Palu confirmé` = 0,
+                 `Attack_Rate_Palu Susp` = 0,
+                 `Attack_Rate_Palu confirmé` = 0,
+                 `Fatality_Rate_Palu Susp` = 0,
+                 `Fatality_Rate_Palu confirmé` = 0
+               ))
+  })
+  
+  # Comparison Plot (using Plotly)
+  output$comparison_plot <- renderPlotly({
+    plot_data <- comparison_data()
+    selected_metric <- input$comparison_metric_select
+    
+    # Dynamically select column names based on the chosen metric
+    y_col_susp <- case_when(
+      selected_metric == "Cases" ~ "Total_Cases_Palu Susp",
+      selected_metric == "Deaths" ~ "Total_Deaths_Palu Susp",
+      selected_metric == "Attack_Rate" ~ "Attack_Rate_Palu Susp",
+      selected_metric == "Fatality_Rate" ~ "Fatality_Rate_Palu Susp",
+      TRUE ~ NA_character_ # Should not happen with defined choices
+    )
+    y_col_conf <- case_when(
+      selected_metric == "Cases" ~ "Total_Cases_Palu confirmé",
+      selected_metric == "Deaths" ~ "Total_Deaths_Palu confirmé",
+      selected_metric == "Attack_Rate" ~ "Attack_Rate_Palu confirmé",
+      selected_metric == "Fatality_Rate" ~ "Fatality_Rate_Palu confirmé",
+      TRUE ~ NA_character_ # Should not happen with defined choices
+    )
+    
+    if (nrow(plot_data) < 2 || (all(is.na(plot_data[[y_col_susp]])) && all(is.na(plot_data[[y_col_conf]])))) {
+      p <- ggplot() +
+        annotate("text", x = 0.5, y = 0.5, 
+                 label = paste("No valid data for", selected_metric, "comparison."), 
+                 size = 5, color = "red", family = "Inter") +
+        theme_void()
+      return(plotly::ggplotly(p))
+    }
+    
+    p <- ggplot(plot_data) +
+      geom_line(aes(x = week_num, y = .data[[y_col_susp]], color = "Suspected"), size = 0.8) + # Adjusted line size
+      geom_point(aes(x = week_num, y = .data[[y_col_susp]], color = "Suspected"), size = 1.8) + # Added points, adjusted size
+      geom_line(aes(x = week_num, y = .data[[y_col_conf]], color = "Confirmed"), size = 0.8) + # Adjusted line size
+      geom_point(aes(x = week_num, y = .data[[y_col_conf]], color = "Confirmed"), size = 1.8) + # Added points, adjusted size
+      labs(
+        title = paste("Comparison of", selected_metric, "Between Suspected and Confirmed Cases (2024)"),
+        x = "Epidemiological Week",
+        y = if (selected_metric == "Cases") "Number of Cases"
+        else if (selected_metric == "Deaths") "Number of Deaths"
+        else if (selected_metric == "Attack_Rate") "Attack Rate (per 100,000)"
+        else "Fatality Rate (%)"
+      ) +
+      scale_color_manual(values = c("Suspected" = metric_colors$Suspected, "Confirmed" = metric_colors$Confirmed)) +
+      scale_x_continuous(breaks = seq(min(plot_data$week_num, na.rm = TRUE), 
+                                      max(plot_data$week_num, na.rm = TRUE), by = 5),
+                         labels = function(x) as.integer(x)) +
+      scale_y_continuous(labels = scales::comma) +
+      custom_plot_theme() +
+      theme(legend.position = "top", legend.title = element_blank())
+    
+    plotly::ggplotly(p, tooltip = c("x", "y", "color")) %>%
+      layout(
+        hovermode = "x unified",
+        margin = list(t = 50, b = 50, l = 50, r = 50),
+        legend = list(orientation = "h", x = 0.5, xanchor = "center", y = 1.1),
+        dragmode = "zoom",
+        xaxis = list(fixedrange = FALSE),
+        yaxis = list(fixedrange = FALSE),
+        modebar = list(
+          bgcolor = "transparent",
+          color = "#000000",
+          activecolor = metric_colors[[selected_metric]]
+        )
+      ) %>%
+      config(
+        displaylogo = FALSE,
+        modeBarButtonsToAdd = c("downloadImage", "zoom2d", "pan2d", "select2d", "lasso2d", "hoverClosestCartesian", "hoverCompareCartesian"),
+        toImageButtonOptions = list(format = "png", filename = paste0("comparison_", selected_metric))
+      )
+  })
   
   # Data Table Tab
   output$full_data_table <- DT::renderDataTable({

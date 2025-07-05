@@ -14,9 +14,8 @@ library(scales) # For comma formatting in plots
 
 # Define File Path and Sheet Name
 file_path <- "MDO 2024 S43.xls"
-#sheet_name <- "Palu Susp"
-sheet_name <- "Palu confirmé"
-#
+sheet_name <- "Palu Susp" # Changed to "Palu Susp" as per your new code
+
 # PART 1: Determine Column Names Programmatically & Read Data Robustly
 # Step 1a: Read header rows to construct column names
 header_df_raw <- read_excel(
@@ -68,7 +67,7 @@ if (ncol(health_data_raw) < length(all_column_names_constructed)) {
   all_column_names_final <- all_column_names_constructed[1:ncol(health_data_raw)]
 } else if (ncol(health_data_raw) > length(all_column_names_constructed)) {
   num_extra_cols <- ncol(health_data_raw) - length(all_column_names_constructed)
-  padded_names <- c(all_column_names_final, paste0("Unknown_", 1:num_extra_cols))
+  padded_names <- c(all_column_names_constructed, paste0("Unknown_", 1:num_extra_cols))
   all_column_names_final <- padded_names
 } else {
   all_column_names_final <- all_column_names_constructed
@@ -261,7 +260,7 @@ server <- function(input, output, session) {
   custom_plot_theme <- function() {
     theme_minimal() +
       theme(
-        plot.title = element_text(hjust = 0.5, face = "bold", size = 16, family = "Inter"),
+        plot.title = element_text(hjust = 0.5, face = "bold", size = 14, family = "Inter"),
         axis.title = element_text(size = 12, family = "Inter"),
         axis.text = element_text(size = 10, family = "Inter"),
         panel.grid.major.x = element_blank(),
@@ -274,12 +273,12 @@ server <- function(input, output, session) {
       )
   }
   
-  # --- Color Palette for Metrics ---
-  metric_colors <- list(
-    Cases = "#1F77B4",        # Blue
-    Deaths = "#D62728",       # Red
-    Attack_Rate = "#2CA02C",  # Green
-    Fatality_Rate = "#9467BD" # Purple
+  # --- Color Palette for Metrics (updated to match new plot styles) ---
+  metric_colors_detailed <- list(
+    Cases = list(line = "#4682B4", point = "#1F4E79"), # Steelblue and a darker blue
+    Deaths = list(line = "#DC143C", point = "#8B0000"), # Firebrick and a darker red
+    Attack_Rate = list(line = "#228B22", point = "#006400"), # Darkgreen and a darker green
+    Fatality_Rate = list(line = "#800080", point = "#4B0082") # Purple and Indigo/Darkmagenta
   )
   
   # --- Reactive Data for Overview Tab ---
@@ -291,11 +290,14 @@ server <- function(input, output, session) {
       summarise(
         Total_Cases = sum(Cases, na.rm = TRUE),
         Total_Deaths = sum(Deaths, na.rm = TRUE),
-        Total_Population = sum(unique(population), na.rm = TRUE),
+        # For population, we need to be careful as it's not a sum across weeks, but unique per district.
+        # For overall summary, sum of unique populations for each week's reporting districts.
+        Total_Population = sum(unique(population), na.rm = TRUE), 
         .groups = 'drop'
       ) %>%
+      # Removed complete() call as per user request
       mutate(
-        Overall_Attack_Rate = (Total_Cases / Total_Population) * 100000,
+        Overall_Attack_Rate = ifelse(Total_Population > 0, (Total_Cases / Total_Population) * 100000, 0),
         Overall_Fatality_Rate = ifelse(Total_Cases > 0, (Total_Deaths / Total_Cases) * 100, 0)
       ) %>%
       arrange(week_num)
@@ -309,15 +311,16 @@ server <- function(input, output, session) {
     paste0(format(sum(overall_summary_data()$Total_Deaths, na.rm = TRUE), big.mark = ","))
   })
   output$overall_attack_rate_summary <- renderText({
-    total_pop_all_weeks <- sum(unique(health_data_for_shiny$population), na.rm = TRUE)
-    total_cases_all_weeks <- sum(health_data_for_shiny$Cases, na.rm = TRUE)
-    overall_attack_rate <- (total_cases_all_weeks / total_pop_all_weeks) * 100000
+    # Calculate overall rates across all data, not just aggregated weekly sums
+    total_pop_overall <- sum(unique(health_data_for_shiny$population), na.rm = TRUE)
+    total_cases_overall <- sum(health_data_for_shiny$Cases, na.rm = TRUE)
+    overall_attack_rate <- (total_cases_overall / total_pop_overall) * 100000
     paste0(format(round(overall_attack_rate, 2), big.mark = ","), " per 100,000")
   })
   output$overall_fatality_rate_summary <- renderText({
-    total_cases_all_weeks <- sum(health_data_for_shiny$Cases, na.rm = TRUE)
-    total_deaths_all_weeks <- sum(health_data_for_shiny$Deaths, na.rm = TRUE)
-    overall_fatality_rate <- ifelse(total_cases_all_weeks > 0, (total_deaths_all_weeks / total_cases_all_weeks) * 100, 0)
+    total_cases_overall <- sum(health_data_for_shiny$Cases, na.rm = TRUE)
+    total_deaths_overall <- sum(health_data_for_shiny$Deaths, na.rm = TRUE)
+    overall_fatality_rate <- ifelse(total_cases_overall > 0, (total_deaths_overall / total_cases_overall) * 100, 0)
     paste0(format(round(overall_fatality_rate, 2), big.mark = ","), "%")
   })
   
@@ -326,6 +329,10 @@ server <- function(input, output, session) {
     plot_data <- overall_summary_data()
     selected_metric_overall <- input$overall_metric_select
     y_col_name <- paste0("Total_", selected_metric_overall)
+    
+    current_colors <- metric_colors_detailed[[selected_metric_overall]]
+    line_color <- current_colors$line
+    point_color <- current_colors$point
     
     if (nrow(plot_data) < 2 || all(is.na(plot_data[[y_col_name]]))) {
       p <- ggplot() +
@@ -337,8 +344,10 @@ server <- function(input, output, session) {
     } else {
       p <- ggplot(plot_data, aes(x = week_num, y = .data[[y_col_name]],
                                  text = paste("Week:", week_num, "<br>",
-                                              selected_metric_overall, ":", round(.data[[y_col_name]], 2)))) +
-        geom_point(color = metric_colors[[selected_metric_overall]], size = 1, alpha = 0.9) +
+                                              selected_metric_overall, ":", round(.data[[y_col_name]], 2)),
+                                 group = 1)) + # Added group = 1 to ensure continuous line
+        geom_line(color = line_color, size = 1.0) + # Increased line size
+        geom_point(color = point_color, size = 0.5) + # Increased point size
         labs(
           title = paste("Overall Malaria", selected_metric_overall, "Trend in Niger, 2024"),
           x = "Epidemiological Week",
@@ -363,7 +372,7 @@ server <- function(input, output, session) {
           modebar = list(
             bgcolor = "transparent",
             color = "#000000",
-            activecolor = metric_colors[[selected_metric_overall]]
+            activecolor = line_color # Use line color for active modebar
           )
         ) %>%
         config(
@@ -388,7 +397,13 @@ server <- function(input, output, session) {
         Fatality_Rate = as.numeric(Fatality_Rate)
       ) %>%
       filter(!is.na(week_num)) %>%
-      arrange(week_num)
+      arrange(week_num) %>%
+      # Removed complete() call as per user request
+      # Recalculate rates after ensuring numeric types
+      mutate(
+        Attack_Rate = ifelse(population > 0, (Cases / population) * 100000, 0),
+        Fatality_Rate = ifelse(Cases > 0, (Deaths / Cases) * 100, 0)
+      )
   })
   
   # District Summary Table
@@ -398,7 +413,7 @@ server <- function(input, output, session) {
         `Total Cases` = sum(Cases, na.rm = TRUE),
         `Total Deaths` = sum(Deaths, na.rm = TRUE),
         `Average Attack Rate` = mean(Attack_Rate, na.rm = TRUE),
-        `Average Fatality Rate` = mean(Fatality_Rate, na.rm = TRUE)
+        `Average Fatality Rate` = round(mean(Fatality_Rate, na.rm = TRUE), 2) # Ensure rounding here
       ) %>%
       mutate(
         `Total Cases` = format(`Total Cases`, big.mark = ","),
@@ -415,9 +430,14 @@ server <- function(input, output, session) {
   })
   
   # Enhanced Render Plotly Function for District Details
-  render_district_plotly <- function(metric_name, y_label, color) {
+  render_district_plotly <- function(metric_name, y_label) { 
     renderPlotly({
       plot_data <- filtered_district_data()
+      
+      # Get colors for the current metric from the detailed list
+      current_colors <- metric_colors_detailed[[metric_name]]
+      line_color <- current_colors$line
+      point_color <- current_colors$point
       
       if (nrow(plot_data) < 2 || all(is.na(plot_data[[metric_name]]))) {
         p <- ggplot() +
@@ -429,8 +449,10 @@ server <- function(input, output, session) {
       } else {
         p <- ggplot(plot_data, aes(x = week_num, y = .data[[metric_name]],
                                    text = paste("Week:", week_num, "<br>",
-                                                metric_name, ":", round(.data[[metric_name]], 2)))) +
-          geom_point(color = color, size = 1, alpha = 0.9) +
+                                                metric_name, ":", round(.data[[metric_name]], 2)),
+                                   group = 1)) + # Added group = 1 to ensure continuous line
+          geom_line(color = line_color, size = 1.0) + # Increased line size
+          geom_point(color = point_color, size = 0.5) + # Increased point size
           labs(
             title = paste("Malaria", metric_name, "in", input$selected_district, "- 2024"),
             x = "Epidemiological Week",
@@ -455,7 +477,7 @@ server <- function(input, output, session) {
             modebar = list(
               bgcolor = "transparent",
               color = "#000000",
-              activecolor = color
+              activecolor = line_color # Use line color for active modebar
             )
           ) %>%
           config(
@@ -467,11 +489,11 @@ server <- function(input, output, session) {
     })
   }
   
-  # Render Plots for District Details Tab
-  output$cases_plot <- render_district_plotly("Cases", "Number of Cases", metric_colors$Cases)
-  output$deaths_plot <- render_district_plotly("Deaths", "Number of Deaths", metric_colors$Deaths)
-  output$attack_rate_plot <- render_district_plotly("Attack_Rate", "Attack Rate (per 100,000)", metric_colors$Attack_Rate)
-  output$fatality_rate_plot <- render_district_plotly("Fatality_Rate", "Fatality Rate (%)", metric_colors$Fatality_Rate)
+  # Render Plots for District Details Tab (calls updated render_district_plotly)
+  output$cases_plot <- render_district_plotly("Cases", "Number of Cases")
+  output$deaths_plot <- render_district_plotly("Deaths", "Number of Deaths")
+  output$attack_rate_plot <- render_district_plotly("Attack_Rate", "Attack Rate (per 100,000)")
+  output$fatality_rate_plot <- render_district_plotly("Fatality_Rate", "Fatality Rate (%)")
   
   # --- Data Table Tab ---
   output$full_data_table <- DT::renderDataTable({
