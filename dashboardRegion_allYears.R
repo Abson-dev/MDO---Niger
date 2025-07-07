@@ -9,74 +9,39 @@ library(shinydashboard)
 library(shinythemes)
 library(plotly)
 library(DT)
-library(shiny.i18n) # For multilingual support
-library(jsonlite) # For JSON handling
-
-# Define translations (English and French)
-translations <- list(
-  en = list(
-    title = "Malaria Data Dashboard",
-    year = "Year",
-    week = "Week",
-    region = "Region",
-    metric = "Metric",
-    all = "All",
-    select_language = "Select Language",
-    plot_title_cases = "Malaria Cases and Deaths Over Time",
-    plot_title_metrics = "Malaria Metrics by Region",
-    table_title = "Malaria Indicators Data",
-    download_csv = "Download CSV",
-    download_excel = "Download Excel",
-    suspected_cases = "Suspected Cases",
-    confirmed_cases = "Confirmed Cases",
-    confirmed_deaths = "Confirmed Deaths",
-    positive_rate = "Positive Rate (%)",
-    attack_rate = "Attack Rate (per 100,000)",
-    fatality_rate = "Fatality Rate (%)"
-  ),
-  fr = list(
-    title = "Tableau de Bord des Données sur le Paludisme",
-    year = "Année",
-    week = "Semaine",
-    region = "Région",
-    metric = "Métrique",
-    all = "Tous",
-    select_language = "Sélectionner la Langue",
-    plot_title_cases = "Cas et Décès de Paludisme au Fil du Temps",
-    plot_title_metrics = "Métriques du Paludisme par Région",
-    table_title = "Données des Indicateurs de Paludisme",
-    download_csv = "Télécharger CSV",
-    download_excel = "Télécharger Excel",
-    suspected_cases = "Cas Suspectés",
-    confirmed_cases = "Cas Confirmés",
-    confirmed_deaths = "Décès Confirmés",
-    positive_rate = "Taux de Positivité (%)",
-    attack_rate = "Taux d'Attaque (par 100 000)",
-    fatality_rate = "Taux de Létalité (%)"
-  )
-)
-
-# Write translations to a temporary JSON file
-temp_json_file <- tempfile(fileext = ".json")
-write_json(translations, temp_json_file, auto_unbox = TRUE)
-
-# Initialize i18n with the temporary JSON file
-i18n <- Translator$new(translation_json_path = temp_json_file)
+library(shinyjs) # For UI enhancements
+library(sf) # For handling shapefiles
+library(leaflet) # For interactive maps
+library(ggplot2) # For static map
+library(RColorBrewer) # For better color palettes
 
 # --- Global Data Loading and Cleaning ---
 
 # Define file paths and sheet names for each year
+# IMPORTANT: Ensure these files (MDO 2023 S52.xls, MDO 2024 S43.xls) are in your working directory,
+# and the shapefile is in 'data/shp/' relative to your working directory.
 file_configs <- list(
-  # "2019" = list(file = "MDO_Niger Semaine 52 2019.xlsx", sheets = c("Palu", "Palu conf")),
-  # "2020" = list(file = "MDO_Niger Semaine 53 2020.xls", sheets = c("Palu", "Palu conf")),
+  "2019" = list(file = "MDO_Niger Semaine 52 2019.xlsx", sheets = c("Palu", "Palu conf")),
+  "2020" = list(file = "MDO_Niger Semaine 53 2020.xls", sheets = c("Palu", "Palu conf")),
   "2021" = list(file = "MDO_Niger Semaine 52 2021.xlsx", sheets = c("PALU", "PALU CONF")),
   "2022" = list(file = "MDO_NIGER 2022 S52.xlsx", sheets = c("Palu suspect", "Palu confirmé")),
   "2023" = list(file = "MDO 2023 S52.xls", sheets = c("Palu Susp", "Palu confirmé")),
   "2024" = list(file = "MDO 2024 S43.xls", sheets = c("Palu Susp", "Palu confirmé"))
 )
 
-# Global list to store errors during initial data loading
-all_initial_load_errors_global <- list()
+# Load Niger region shapefile with error handling
+niger_shp <- tryCatch({
+  shp <- st_read("data/shp/NER_admbnda_adm1_IGNN_20230720.shp")
+  shp %>% mutate(nom = toupper(ADM1_FR)) # Standardize region names to uppercase
+}, error = function(e) {
+  message("Error loading shapefile: ", e$message)
+  NULL
+})
+
+# Check if shapefile loaded successfully
+if (is.null(niger_shp)) {
+  stop("Failed to load data/shp/NER_admbnda_adm1_IGNN_20230720.shp. Please verify the file path and format.")
+}
 
 # Function to process a single sheet from a given file and year
 process_sheet <- function(file_path, sheet_name, year) {
@@ -171,9 +136,13 @@ process_sheet <- function(file_path, sheet_name, year) {
     
     health_data_clean_names <- health_data_filtered %>% janitor::clean_names()
     
+    # Relax population filter to include non-numeric or missing values
+    health_data_clean_names <- health_data_clean_names %>%
+      mutate(population = ifelse(is.na(population) | population %in% c("POP", "NA", ""), NA, population))
+    
     health_data_typed <- health_data_clean_names %>%
       mutate(
-        population = readr::parse_number(population),
+        population = readr::parse_number(population, na = c("", "NA")),
         across(
           starts_with("semaine_") &
             (contains("cas") | contains("deces") |
@@ -234,6 +203,8 @@ process_sheet <- function(file_path, sheet_name, year) {
 
 # Process all sheets and combine
 all_health_data_list <- list()
+all_initial_load_errors_global <- list() # Ensure this is initialized globally for error collection
+
 for (year_str in names(file_configs)) {
   config <- file_configs[[year_str]]
   current_file_path <- config$file
@@ -254,7 +225,7 @@ health_data_for_shiny <- bind_rows(all_health_data_list)
 # Add a combined week-year column for plotting across years
 health_data_for_shiny <- health_data_for_shiny %>%
   mutate(
-    Year_Week = as.numeric(paste0(Year, sprintf("%02d", week))) # e.g., 201901, 201902
+    Year_Week = as.numeric(paste0(Year, sprintf("%02d", week))) # e.g., 202301, 202302
   )
 
 # Calculate Combined Indicators with region
@@ -267,16 +238,30 @@ combined_indicators <- health_data_for_shiny %>%
     Suspected_Cases = sum(Cases[Sheet %in% suspected_sheet_names], na.rm = TRUE),
     Confirmed_Cases = sum(Cases[Sheet %in% confirmed_sheet_names], na.rm = TRUE),
     Confirmed_Deaths = sum(Deaths[Sheet %in% confirmed_sheet_names], na.rm = TRUE),
-    Total_Population_Suspected = sum(unique(population[Sheet %in% suspected_sheet_names]), na.rm = TRUE),
-    Total_Population_Confirmed = sum(unique(population[Sheet %in% confirmed_sheet_names]), na.rm = TRUE),
+    # Sum unique population values per region, across suspected/confirmed sheets
+    Total_Population = sum(unique(population), na.rm = TRUE),
     .groups = 'drop'
   ) %>%
   mutate(
     Positive_Rate = ifelse(Suspected_Cases > 0, (Confirmed_Cases / Suspected_Cases) * 100, 0),
-    Confirmed_Attack_Rate = ifelse(Total_Population_Confirmed > 0, (Confirmed_Cases / Total_Population_Confirmed) * 100000, 0),
+    Confirmed_Attack_Rate = ifelse(Total_Population > 0, (Confirmed_Cases / Total_Population) * 100000, 0),
     Confirmed_Fatality_Rate = ifelse(Confirmed_Cases > 0, (Confirmed_Deaths / Confirmed_Cases) * 100, 0)
   ) %>%
   arrange(Year, week, region)
+
+# Standardize region names in combined_indicators to match ADM1_FR (shapefile)
+combined_indicators <- combined_indicators %>%
+  mutate(region = toupper(region)) %>%
+  mutate(region = recode(region,
+                         "TILLABERI" = "TILLABÉRI",
+                         "TAHOA" = "TAHOUA",
+                         "DIFFA" = "DIFFA",
+                         "DOSSO" = "DOSSO",
+                         "NIAMEY" = "NIAMEY",
+                         "AGADEZ" = "AGADEZ",
+                         "MARADI" = "MARADI",
+                         "ZINDER" = "ZINDER"
+  ))
 
 # Save to Excel
 write_xlsx(combined_indicators, path = "Malaria_Combined_Indicators.xlsx")
@@ -285,46 +270,159 @@ write_xlsx(combined_indicators, path = "Malaria_Combined_Indicators.xlsx")
 
 # Define UI
 ui <- dashboardPage(
-  dashboardHeader(title = uiOutput("app_title")),
+  dashboardHeader(title = tags$a(href = "https://www.unicef.org/", # Changed link to UNICEF for relevance
+                                 tags$img(src = "https://www.unicef.org/sites/default/files/styles/logo_mobile_retina/public/UNICEF_Logo_Blue.png?itok=xM9sQ1sC",
+                                          height = "40px"),
+                                 "Malaria Data Dashboard"),
+                  titleWidth = 350), # Adjust title width for logo
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Dashboard", tabName = "dashboard", icon = icon("dashboard")),
-      selectInput("language", "Select Language / Sélectionner la Langue", choices = c("English" = "en", "French" = "fr")),
-      selectInput("year", uiOutput("year_label"), choices = c("All" = "All", unique(combined_indicators$Year)), selected = "All"),
-      selectInput("week", uiOutput("week_label"), choices = c("All" = "All", unique(combined_indicators$week)), selected = "All"),
-      selectInput("region", uiOutput("region_label"), choices = c("All" = "All", unique(combined_indicators$region)), selected = "All"),
-      selectInput("metric", uiOutput("metric_label"), 
+      id = "tabs", # Add an ID to the sidebarMenu for active tab management
+      menuItem("Dashboard Overview", tabName = "dashboard", icon = icon("dashboard")),
+      menuItem("Data Explorer", tabName = "data_explorer", icon = icon("table")),
+      menuItem("Information", tabName = "info", icon = icon("info-circle")),
+      hr(), # Horizontal line for separation
+      h4("Filters", style = "padding-left: 15px; color: #fff;"),
+      selectInput("year", "Select Year:", choices = c("All", unique(combined_indicators$Year)), selected = "All"),
+      selectInput("week", "Select Week:", choices = c("All", unique(combined_indicators$week)), selected = "All"),
+      selectInput("region", "Select Region:", choices = c("All", sort(unique(combined_indicators$region))), selected = "All"),
+      selectInput("metric", "Select Metric:",
                   choices = c(
-                    "Suspected Cases / Cas Suspectés" = "Suspected_Cases",
-                    "Confirmed Cases / Cas Confirmés" = "Confirmed_Cases",
-                    "Confirmed Deaths / Décès Confirmés" = "Confirmed_Deaths",
-                    "Positive Rate (%) / Taux de Positivité (%)" = "Positive_Rate",
-                    "Attack Rate (per 100,000) / Taux d'Attaque (par 100 000)" = "Confirmed_Attack_Rate",
-                    "Fatality Rate (%) / Taux de Létalité (%)" = "Confirmed_Fatality_Rate"
+                    "Suspected Cases" = "Suspected_Cases",
+                    "Confirmed Cases" = "Confirmed_Cases",
+                    "Confirmed Deaths" = "Confirmed_Deaths",
+                    "Positive Rate (%)" = "Positive_Rate",
+                    "Attack Rate (per 100,000)" = "Confirmed_Attack_Rate",
+                    "Fatality Rate (%)" = "Confirmed_Fatality_Rate"
                   ),
                   selected = "Confirmed_Cases"),
-      downloadButton("download_csv", uiOutput("download_csv_label")),
-      downloadButton("download_excel", uiOutput("download_excel_label"))
+      hr(),
+      h4("Download Data", style = "padding-left: 15px; color: #fff;"),
+      div(style = "padding-left: 15px;",
+          downloadButton("download_csv", "Download CSV", class = "btn-success"),
+          downloadButton("download_excel", "Download Excel", class = "btn-info")
+      )
     )
   ),
   dashboardBody(
-    shinyjs::useShinyjs(),
+    useShinyjs(),
     tags$head(
+      tags$link(rel = "stylesheet", type = "text/css", href = "https://fonts.googleapis.com/css?family=Open+Sans"),
       tags$style(HTML("
-        .content-wrapper { background-color: #f4f6f9; }
-        .box { border-radius: 8px; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
-        .main-header .logo { font-weight: bold; font-size: 20px; }
-        .download-btn { margin-top: 10px; }
+        body { font-family: 'Open Sans', sans-serif; }
+        .content-wrapper { background-color: #f0f2f5; } /* Lighter background */
+        .box {
+          border-radius: 8px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15); /* More pronounced shadow */
+          border-top: 3px solid #3c8dbc; /* Blue top border */
+          margin-bottom: 20px;
+        }
+        .box-header .box-title {
+          font-size: 18px;
+          font-weight: bold;
+          color: #333;
+        }
+        .main-header .logo {
+          font-weight: bold;
+          font-size: 20px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .main-header .logo img {
+          margin-right: 10px;
+        }
+        .sidebar-menu li a {
+          font-size: 16px;
+        }
+        .sidebar-menu .active a {
+          background-color: #007bff !important; /* Brighter active tab */
+          color: #fff !important;
+        }
+        .download-btn {
+          width: 90%; /* Make download buttons wider */
+          margin-bottom: 10px;
+        }
+        .dataTables_wrapper .dataTables_filter input {
+          width: 300px; /* Wider search bar for DT */
+        }
+        .shiny-notification {
+          position: fixed;
+          top: 10%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          width: 400px;
+          padding: 20px;
+          border-radius: 10px;
+          box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+          background-color: #dff0d8;
+          color: #3c763d;
+          border: 1px solid #d6e9c6;
+          font-size: 16px;
+        }
+        .info-box {
+          background-color: #fff;
+          border-radius: 8px;
+          box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+          padding: 20px;
+          margin-bottom: 20px;
+        }
       "))
     ),
     tabItems(
       tabItem(tabName = "dashboard",
               fluidRow(
-                box(title = uiOutput("plot_title_cases"), width = 6, plotlyOutput("cases_plot")),
-                box(title = uiOutput("plot_title_metrics"), width = 6, plotlyOutput("metrics_plot"))
+                column(width = 6,
+                       box(title = "Malaria Metrics Over Time", width = NULL, plotlyOutput("cases_plot", height = 400))
+                ),
+                column(width = 6,
+                       box(title = "Malaria Metrics by Region (Static Map)", width = NULL, plotOutput("static_map_plot", height = 400))
+                )
               ),
               fluidRow(
-                box(title = uiOutput("table_title"), width = 12, DTOutput("data_table"))
+                box(title = "Malaria Indicators by Region (Interactive Map)", width = 12, leafletOutput("map_plot", height = 600))
+              )
+      ),
+      tabItem(tabName = "data_explorer",
+              fluidRow(
+                # THIS IS THE CORRECTED PART!
+                box(title = "Detailed Malaria Data Table", width = 12, DTOutput("data_table"))
+              )
+      ),
+      tabItem(tabName = "info",
+              fluidRow(
+                column(width = 12,
+                       div(class = "info-box",
+                           h3("About This Dashboard"),
+                           p("This dashboard provides an interactive visualization of malaria indicators in Niger, leveraging data from MDO 2023 and MDO 2024 reports."),
+                           p("Key features include:"),
+                           tags$ul(
+                             tags$li("Time-series plots for various malaria metrics."),
+                             tags$li("Static and interactive maps to visualize regional distribution of malaria indicators."),
+                             tags$li("A detailed data table for exploring the raw and aggregated data."),
+                             tags$li("Download options for filtered data in CSV and Excel formats.")
+                           ),
+                           h3("Data Sources"),
+                           p("The data used in this dashboard is derived from the following files:"),
+                           tags$ul(
+                             tags$li("MDO 2023 S52.xls"),
+                             tags$li("MDO 2024 S43.xls")
+                           ),
+                           p("Geographic data (shapefile) for Niger's regions is from ",
+                             tags$a(href = "https://data.humdata.org/dataset/niger-admin-level-1-boundaries", target = "_blank", "Humanitarian Data Exchange (HDX).")),
+                           h3("Metrics Explained"),
+                           tags$ul(
+                             tags$li("Suspected Cases: Total number of individuals suspected of having malaria."),
+                             tags$li("Confirmed Cases: Total number of laboratory-confirmed malaria cases."),
+                             tags$li("Confirmed Deaths: Total number of deaths due to confirmed malaria cases."),
+                             tags$li("Positive Rate (%): (Confirmed Cases / Suspected Cases) * 100. Indicates the proportion of suspected cases that are confirmed."),
+                             tags$li("Attack Rate (per 100,000): (Confirmed Cases / Total Population) * 100,000. Represents the incidence of confirmed malaria cases per 100,000 population."),
+                             tags$li("Fatality Rate (%): (Confirmed Deaths / Confirmed Cases) * 100. Indicates the proportion of confirmed cases that result in death.")
+                           ),
+                           h3("Contact"),
+                           p("For questions or feedback, please contact [Your Name/Organization Name] at [Your Email Address].")
+                       )
+                )
               )
       )
     )
@@ -334,25 +432,45 @@ ui <- dashboardPage(
 
 # Define Server
 server <- function(input, output, session) {
-  # Reactive for language
-  observeEvent(input$language, {
-    i18n$set_translation_language(input$language)
+  
+  # Define the metric display names once for consistent use
+  metric_display_names <- c(
+    "Suspected_Cases" = "Suspected Cases",
+    "Confirmed_Cases" = "Confirmed Cases",
+    "Confirmed_Deaths" = "Confirmed Deaths",
+    "Positive_Rate" = "Positive Rate (%)",
+    "Confirmed_Attack_Rate" = "Attack Rate (per 100,000)",
+    "Fatality_Rate" = "Fatality Rate (%)"
+  )
+  
+  # Update week choices based on selected year
+  observeEvent(input$year, {
+    if (input$year == "All") {
+      updateSelectInput(session, "week", choices = c("All", sort(unique(combined_indicators$week))), selected = "All")
+    } else {
+      weeks_for_year <- combined_indicators %>%
+        filter(Year == as.integer(input$year)) %>%
+        pull(week) %>%
+        unique() %>%
+        sort()
+      updateSelectInput(session, "week", choices = c("All", weeks_for_year), selected = "All")
+    }
   })
   
-  # Dynamic UI labels
-  output$app_title <- renderUI({ i18n$t("title") })
-  output$year_label <- renderUI({ i18n$t("year") })
-  output$week_label <- renderUI({ i18n$t("week") })
-  output$region_label <- renderUI({ i18n$t("region") })
-  output$metric_label <- renderUI({ i18n$t("metric") })
-  output$download_csv_label <- renderUI({ i18n$t("download_csv") })
-  output$download_excel_label <- renderUI({ i18n$t("download_excel") })
-  output$plot_title_cases <- renderUI({ i18n$t("plot_title_cases") })
-  output$plot_title_metrics <- renderUI({ i18n$t("plot_title_metrics") })
-  output$table_title <- renderUI({ i18n$t("table_title") })
+  # Reactive filtered data for maps (ignores region filter for broader overview)
+  filtered_data_for_maps <- reactive({
+    data <- combined_indicators
+    if (input$year != "All") {
+      data <- data %>% filter(Year == as.integer(input$year))
+    }
+    if (input$week != "All") {
+      data <- data %>% filter(week == as.integer(input$week))
+    }
+    data
+  })
   
-  # Reactive filtered data
-  filtered_data <- reactive({
+  # Reactive filtered data for plot and table (includes region filter)
+  filtered_data_for_plot_table <- reactive({
     data <- combined_indicators
     if (input$year != "All") {
       data <- data %>% filter(Year == as.integer(input$year))
@@ -366,70 +484,209 @@ server <- function(input, output, session) {
     data
   })
   
-  # Line plot for cases and deaths over time
+  # Line plot for selected metric over time by week
   output$cases_plot <- renderPlotly({
-    data <- filtered_data() %>%
-      mutate(Year_Week = as.numeric(paste0(Year, sprintf("%02d", week))))
+    data <- filtered_data_for_plot_table()
     
-    p <- plot_ly(data, x = ~Year_Week) %>%
-      add_lines(y = ~Suspected_Cases, name = i18n$t("suspected_cases"), line = list(color = "#1f77b4")) %>%
-      add_lines(y = ~Confirmed_Cases, name = i18n$t("confirmed_cases"), line = list(color = "#ff7f0e")) %>%
-      add_lines(y = ~Confirmed_Deaths, name = i18n$t("confirmed_deaths"), line = list(color = "#d62728")) %>%
+    # Dynamic plot title
+    plot_title <- paste("Trend of", metric_display_names[input$metric], "over Time")
+    if (input$region != "All") {
+      plot_title <- paste(plot_title, "in", input$region)
+    }
+    if (input$year != "All") {
+      plot_title <- paste(plot_title, "for", input$year)
+    }
+    
+    # Ensure consistent ordering for plotting
+    plot_data <- data %>% arrange(Year, week)
+    
+    p <- plot_ly(plot_data, x = ~week, y = ~get(input$metric), type = 'scatter', mode = 'lines',
+                 color = ~as.factor(Year), # Color by year
+                 colors = RColorBrewer::brewer.pal(max(3, length(unique(plot_data$Year))), "Set1"), # Use Brewer palette
+                 hoverinfo = 'text',
+                 text = ~paste('Year: ', Year, '<br>Week: ', week, '<br>',
+                               metric_display_names[input$metric], ': ', round(get(input$metric), 2))) %>%
       layout(
-        xaxis = list(title = "Year-Week / Année-Semaine"),
-        yaxis = list(title = "Count / Nombre"),
-        legend = list(orientation = "h", x = 0, y = -0.2)
+        title = list(text = plot_title, font = list(size = 16)),
+        xaxis = list(title = "Week", type = 'category', # Set x-axis title to "Week"
+                     tickvals = unique(plot_data$week)[seq(1, length(unique(plot_data$week)), by = 4)], # Show fewer ticks for readability
+                     ticktext = unique(paste0("W", plot_data$week))[seq(1, length(unique(plot_data$week)), by = 4)]), 
+        yaxis = list(title = metric_display_names[input$metric]),
+        legend = list(orientation = "h", x = 0, y = -0.2),
+        margin = list(b = 100) # Adjust bottom margin for legend
       )
     p
   })
   
-  # Bar plot for selected metric by region
-  output$metrics_plot <- renderPlotly({
-    data <- filtered_data()
-    p <- plot_ly(data, x = ~region, y = ~get(input$metric), type = "bar",
-                 name = i18n$t(input$metric),
-                 marker = list(color = "#2ca02c")) %>%
-      layout(
-        xaxis = list(title = i18n$t("region"), tickangle = 45),
-        yaxis = list(title = i18n$t(input$metric))
+  # Static map for selected metric by region for selected year/week
+  output$static_map_plot <- renderPlot({
+    data <- filtered_data_for_maps()
+    
+    # Aggregate data by region based on current filters
+    agg_data <- data %>%
+      group_by(region) %>%
+      summarise(
+        Metric_Value = mean(get(input$metric), na.rm = TRUE), # Use mean for aggregation
+        .groups = 'drop'
+      ) %>%
+      mutate(region = toupper(region)) # Ensure region names are uppercase for joining
+    
+    # Join with shapefile
+    map_data <- niger_shp %>%
+      left_join(agg_data, by = c("nom" = "region"))
+    
+    # Dynamic map title
+    map_title <- paste("Average", metric_display_names[input$metric], "by Region")
+    if (input$year != "All") {
+      map_title <- paste(map_title, "in", input$year)
+    }
+    if (input$week != "All") {
+      map_title <- paste(map_title, "Week", input$week)
+    }
+    
+    # Create static map with ggplot2
+    ggplot(data = map_data) +
+      geom_sf(aes(fill = Metric_Value), color = "white", lwd = 0.5) + # Add white border for regions
+      scale_fill_viridis_c( # Use viridis for better colorblind-friendliness
+        option = "plasma",
+        na.value = "#CCCCCC", # Light grey for no data
+        name = metric_display_names[input$metric]
+      ) +
+      theme_minimal() +
+      labs(
+        title = map_title,
+        caption = "Data source: MDO 2023-2024. Regions with no data are grey."
+      ) +
+      theme(
+        plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
+        legend.position = "right",
+        legend.title = element_text(size = 12),
+        legend.text = element_text(size = 10),
+        panel.grid.major = element_blank(), # Remove grid lines
+        panel.grid.minor = element_blank(),
+        axis.text = element_blank(), # Remove axis text
+        axis.title = element_blank() # Remove axis titles
       )
-    p
+  }, bg = "transparent") # Set background to transparent for integration with dashboard
+  
+  # Interactive map plot for selected metric by region
+  output$map_plot <- renderLeaflet({
+    data <- filtered_data_for_maps() %>%
+      group_by(region) %>%
+      summarise(
+        Metric_Value = mean(get(input$metric), na.rm = TRUE),
+        .groups = 'drop'
+      ) %>%
+      mutate(region = toupper(region))
+    
+    # Join with shapefile
+    map_data <- niger_shp %>%
+      left_join(data, by = c("nom" = "region"))
+    
+    # Ensure valid geometry for leaflet
+    map_data <- st_make_valid(map_data)
+    
+    # Define color palette for the map
+    pal <- colorNumeric(palette = "YlGnBu", domain = map_data$Metric_Value, na.color = "#CCCCCC") # Use YlGnBu for a different feel
+    
+    # Create popup content
+    popup_content <- paste0(
+      "<b>Region:</b> ", map_data$nom, "<br>",
+      "<b>", metric_display_names[input$metric], ":</b> ",
+      ifelse(is.na(map_data$Metric_Value), "No data", round(map_data$Metric_Value, 2))
+    )
+    
+    # Create leaflet map
+    leaflet(map_data) %>%
+      addProviderTiles(providers$CartoDB.Positron) %>% # Different base map for better aesthetics
+      addPolygons(
+        fillColor = ~pal(Metric_Value),
+        fillOpacity = 0.8,
+        color = "#444444",
+        weight = 1,
+        popup = popup_content,
+        highlightOptions = highlightOptions(
+          color = "white", weight = 2,
+          bringToFront = TRUE
+        )
+      ) %>%
+      addLegend(
+        pal = pal,
+        values = ~Metric_Value,
+        title = metric_display_names[input$metric],
+        position = "bottomright",
+        labFormat = labelFormat(digits = 2)
+      ) %>%
+      setView(lng = 8, lat = 17, zoom = 6) # Center map on Niger
   })
   
   # Data table
   output$data_table <- renderDT({
-    data <- filtered_data() %>%
+    data <- filtered_data_for_plot_table() %>%
       rename(
-        "Year / Année" = Year,
-        "Week / Semaine" = week,
-        "Region / Région" = region,
-        "Suspected Cases / Cas Suspectés" = Suspected_Cases,
-        "Confirmed Cases / Cas Confirmés" = Confirmed_Cases,
-        "Confirmed Deaths / Décès Confirmés" = Confirmed_Deaths,
-        "Population (Suspected) / Population (Suspectée)" = Total_Population_Suspected,
-        "Population (Confirmed) / Population (Confirmée)" = Total_Population_Confirmed,
-        "Positive Rate (%) / Taux de Positivité (%)" = Positive_Rate,
-        "Attack Rate (per 100,000) / Taux d'Attaque (par 100 000)" = Confirmed_Attack_Rate,
-        "Fatality Rate (%) / Taux de Létalité (%)" = Confirmed_Fatality_Rate
-      )
-    datatable(data, options = list(pageLength = 10, autoWidth = TRUE), rownames = FALSE)
+        "Year" = Year,
+        "Week" = week,
+        "Region" = region,
+        "Suspected Cases" = Suspected_Cases,
+        "Confirmed Cases" = Confirmed_Cases,
+        "Confirmed Deaths" = Confirmed_Deaths,
+        "Total Population" = Total_Population, # Renamed for clarity
+        "Positive Rate (%)" = Positive_Rate,
+        "Attack Rate (per 100,000)" = Confirmed_Attack_Rate,
+        "Fatality Rate (%)" = Confirmed_Fatality_Rate
+      ) %>%
+      select(Year, Week, Region, district, `Suspected Cases`, `Confirmed Cases`, `Confirmed Deaths`,
+             `Total Population`, `Positive Rate (%)`, `Attack Rate (per 100,000)`, `Fatality Rate (%)`) # Reorder columns
+    
+    datatable(data,
+              options = list(
+                pageLength = 10,
+                autoWidth = TRUE,
+                scrollX = TRUE, # Enable horizontal scrolling for many columns
+                dom = 'lfrtip', # Show length, filter, table, info, pagination
+                lengthMenu = c(10, 25, 50, 100) # Options for number of rows per page
+              ),
+              rownames = FALSE,
+              filter = 'top' # Add filters on top of each column
+    ) %>%
+      formatRound(columns = c("Positive Rate (%)", "Attack Rate (per 100,000)", "Fatality Rate (%)"), digits = 2)
   })
   
   # Download CSV
   output$download_csv <- downloadHandler(
-    filename = function() { "Malaria_Indicators.csv" },
+    filename = function() {
+      paste0("Malaria_Indicators_", input$year, "_", input$week, "_", input$region, ".csv")
+    },
     content = function(file) {
-      write_csv(filtered_data(), file)
+      write_csv(filtered_data_for_plot_table(), file)
     }
   )
   
   # Download Excel
   output$download_excel <- downloadHandler(
-    filename = function() { "Malaria_Indicators.xlsx" },
+    filename = function() {
+      paste0("Malaria_Indicators_", input$year, "_", input$week, "_", input$region, ".xlsx")
+    },
     content = function(file) {
-      write_xlsx(filtered_data(), file)
+      write_xlsx(filtered_data_for_plot_table(), file)
     }
   )
+  
+  # Display initial load errors as a Shiny notification
+  observe({
+    if (length(all_initial_load_errors_global) > 0) {
+      error_messages <- map_chr(all_initial_load_errors_global, ~ paste0("- File: ", .$File, ", Sheet: ", .$Sheet, ", Error: ", .$Error_Message))
+      showNotification(
+        ui = div(
+          h4("Data Loading Warnings/Errors"),
+          tags$ul(lapply(error_messages, tags$li))
+        ),
+        duration = NULL, # Persist until dismissed
+        type = "warning",
+        closeButton = TRUE
+      )
+    }
+  })
 }
 
 # Run the application
