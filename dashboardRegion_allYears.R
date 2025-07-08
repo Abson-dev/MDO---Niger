@@ -263,7 +263,16 @@ combined_indicators <- combined_indicators %>%
                          "ZINDER" = "ZINDER"
   ))
 
-# Save to Excel
+# Join combined_indicators with niger_shp to get ADM1_PCODE
+combined_indicators <- combined_indicators %>%
+  left_join(
+    niger_shp %>% select(nom, ADM1_PCODE) %>% st_drop_geometry(), # Select ADM1_PCODE and drop geometry
+    by = c("region" = "nom")
+  ) %>%
+  # Ensure ADM1_PCODE is at the beginning of the dataframe for better visibility
+  select(Year, week, region, ADM1_PCODE, everything())
+
+# Save to Excel (This line is for initial data processing, not the app download)
 write_xlsx(combined_indicators, path = "Malaria_Combined_Indicators.xlsx")
 
 # --- Shiny Application ---
@@ -280,7 +289,8 @@ ui <- dashboardPage(
       id = "tabs", # Add an ID to the sidebarMenu for active tab management
       menuItem("Dashboard Overview", tabName = "dashboard", icon = icon("dashboard")),
       menuItem("Data Explorer", tabName = "data_explorer", icon = icon("table")),
-      menuItem("Information", tabName = "info", icon = icon("info-circle")),
+      menuItem("How-to Guide", tabName = "how_to_guide", icon = icon("info-circle")), # New tab for how-to guide
+      menuItem("Information", tabName = "info", icon = icon("info-circle")), # Existing information tab
       hr(), # Horizontal line for separation
       h4("Filters", style = "padding-left: 15px; color: #fff;"),
       selectInput("year", "Select Year:", choices = c("All", unique(combined_indicators$Year)), selected = "All"),
@@ -293,7 +303,7 @@ ui <- dashboardPage(
                     "Confirmed Deaths" = "Confirmed_Deaths",
                     "Positive Rate (%)" = "Positive_Rate",
                     "Attack Rate (per 100,000)" = "Confirmed_Attack_Rate",
-                    "Fatality Rate (%)" = "Confirmed_Fatality_Rate"
+                    "Fatality Rate (%)" = "Fatality_Rate"
                   ),
                   selected = "Confirmed_Cases"),
       hr(),
@@ -385,8 +395,71 @@ ui <- dashboardPage(
       ),
       tabItem(tabName = "data_explorer",
               fluidRow(
-                # THIS IS THE CORRECTED PART!
                 box(title = "Detailed Malaria Data Table", width = 12, DTOutput("data_table"))
+              )
+      ),
+      # New "How-to Guide" tab
+      tabItem(tabName = "how_to_guide",
+              fluidRow(
+                column(width = 12,
+                       div(class = "info-box",
+                           h2("How to Use This Malaria Data Dashboard"),
+                           p("This guide will walk you through the key features and functionalities of the dashboard, helping you to effectively explore and analyze malaria data in Niger."),
+                           
+                           h3("Phase 1: Getting Started - Dashboard Overview"),
+                           tags$ul(
+                             tags$li(tags$strong("Dashboard Overview Tab:"), " This is your starting point. It provides a visual summary of key malaria indicators. You'll see:"),
+                             tags$ul(
+                               tags$li(tags$strong("Malaria Metrics Over Time (Top Left):"), " A dynamic line plot showing trends for your selected metric across different years and weeks."),
+                               tags$li(tags$strong("Malaria Metrics by Region (Static Map, Top Right):"), " A static map visualizing the average selected metric across regions of Niger. Regions with no data are shaded grey."),
+                               tags$li(tags$strong("Malaria Indicators by Region (Interactive Map, Bottom):"), " An interactive map allowing you to zoom, pan, and click on regions for detailed metric values.")
+                             ),
+                             tags$li(tags$strong("Left Sidebar Filters:"), " Use the dropdown menus in the left sidebar to refine the data displayed in the plots and maps:"),
+                             tags$ul(
+                               tags$li(tags$strong("Select Year:"), " Choose a specific year or 'All' to see trends across all available years."),
+                               tags$li(tags$strong("Select Week:"), " Filter data by a particular week within a year or view 'All' weeks."),
+                               tags$li(tags$strong("Select Region:"), " Focus on a specific administrative region of Niger or view data for 'All' regions."),
+                               tags$li(tags$strong("Select Metric:"), " Switch between different malaria indicators like 'Confirmed Cases', 'Fatality Rate', 'Attack Rate', etc. The plots and maps will update dynamically based on your selection.")
+                             )
+                           ),
+                           
+                           h3("Phase 2: Deep Dive - Data Explorer"),
+                           tags$ul(
+                             tags$li(tags$strong("Data Explorer Tab:"), " Navigate to this tab to view the aggregated malaria data in a detailed, interactive table."),
+                             tags$ul(
+                               tags$li(tags$strong("Table Functionality:"), " You can:"),
+                               tags$ul(
+                                 tags$li("Use the search bar at the top right to find specific entries."),
+                                 tags$li("Sort columns by clicking on their headers (click once for ascending, twice for descending)."),
+                                 tags$li("Filter data for specific values in each column using the input boxes directly below the column headers."),
+                                 tags$li("Adjust the number of rows displayed per page using the 'Show entries' dropdown.")
+                               )
+                             ),
+                             tags$li("The table includes all calculated metrics along with `ADM1_PCODE` (Administrative Division 1 P-Code) for each region, providing unique identifiers.")
+                           ),
+                           
+                           h3("Phase 3: Understanding the Visualizations"),
+                           tags$ul(
+                             tags$li(tags$strong("Time Series Plot:"), " Observe trends over time. When 'All' years are selected, each line represents a different year, allowing for easy comparison of malaria patterns across years. Hover over data points to see specific values."),
+                             tags$li(tags$strong("Static Map:"), " Provides a quick, visual summary of metric distribution across regions for the currently selected filters. Darker shades generally indicate higher values of the selected metric."),
+                             tags$li(tags$strong("Interactive Map:"), " Enables granular exploration."),
+                             tags$ul(
+                               tags$li(tags$strong("Zoom/Pan:"), " Use your mouse wheel or the +/- controls to zoom in and out, and click-and-drag to pan the map."),
+                               tags$li(tags$strong("Click on Regions:"), " Clicking on any region will open a popup displaying the region's name, its `ADM1_PCODE`, and the value of the currently selected malaria metric for that region. This is particularly useful for identifying specific regional data.")
+                             )
+                           ),
+                           
+                           h3("Phase 4: Exporting Your Analysis"),
+                           tags$ul(
+                             tags$li(tags$strong("Download Data Section (Left Sidebar):"), " Once you have filtered the data to your interest, you can download it for further analysis or reporting."),
+                             tags$ul(
+                               tags$li(tags$strong("Download CSV:"), " Downloads the currently filtered data as a Comma Separated Values (.csv) file, suitable for spreadsheets and data analysis tools."),
+                               tags$li(tags$strong("Download Excel:"), " Downloads the currently filtered data as an Excel (.xlsx) spreadsheet, preserving data types and making it easy to use.")
+                             )
+                           ),
+                           p("We hope this guide helps you make the most of this Malaria Data Dashboard. For any further questions, please refer to the 'Information' tab or contact us.")
+                       )
+                )
               )
       ),
       tabItem(tabName = "info",
@@ -400,7 +473,8 @@ ui <- dashboardPage(
                              tags$li("Time-series plots for various malaria metrics."),
                              tags$li("Static and interactive maps to visualize regional distribution of malaria indicators."),
                              tags$li("A detailed data table for exploring the raw and aggregated data."),
-                             tags$li("Download options for filtered data in CSV and Excel formats.")
+                             tags$li("Download options for filtered data in CSV and Excel formats."),
+                             tags$li("Comprehensive 'How-to Guide' for navigating the application.")
                            ),
                            h3("Data Sources"),
                            p("The data used in this dashboard is derived from the following files:"),
@@ -510,7 +584,7 @@ server <- function(input, output, session) {
         title = list(text = plot_title, font = list(size = 16)),
         xaxis = list(title = "Week", type = 'category', # Set x-axis title to "Week"
                      tickvals = unique(plot_data$week)[seq(1, length(unique(plot_data$week)), by = 4)], # Show fewer ticks for readability
-                     ticktext = unique(paste0("W", plot_data$week))[seq(1, length(unique(plot_data$week)), by = 4)]), 
+                     ticktext = unique(paste0("W", plot_data$week))[seq(1, length(unique(plot_data$week)), by = 4)]),
         yaxis = list(title = metric_display_names[input$metric]),
         legend = list(orientation = "h", x = 0, y = -0.2),
         margin = list(b = 100) # Adjust bottom margin for legend
@@ -592,6 +666,7 @@ server <- function(input, output, session) {
     # Create popup content
     popup_content <- paste0(
       "<b>Region:</b> ", map_data$nom, "<br>",
+      "<b>ADM1_PCODE:</b> ", map_data$ADM1_PCODE, "<br>", # Include ADM1_PCODE in popup
       "<b>", metric_display_names[input$metric], ":</b> ",
       ifelse(is.na(map_data$Metric_Value), "No data", round(map_data$Metric_Value, 2))
     )
@@ -627,15 +702,17 @@ server <- function(input, output, session) {
         "Year" = Year,
         "Week" = week,
         "Region" = region,
+        "ADM1 PCODE" = ADM1_PCODE, # Renamed for display
         "Suspected Cases" = Suspected_Cases,
         "Confirmed Cases" = Confirmed_Cases,
         "Confirmed Deaths" = Confirmed_Deaths,
         "Total Population" = Total_Population, # Renamed for clarity
         "Positive Rate (%)" = Positive_Rate,
         "Attack Rate (per 100,000)" = Confirmed_Attack_Rate,
-        "Fatality Rate (%)" = Confirmed_Fatality_Rate
+        "Fatality Rate (%)" = Fatality_Rate
       ) %>%
-      select(Year, Week, Region, district, `Suspected Cases`, `Confirmed Cases`, `Confirmed Deaths`,
+      # Ensure ADM1 PCODE is explicitly included and ordered as desired
+      select(Year, Week, `ADM1 PCODE`, Region, district, `Suspected Cases`, `Confirmed Cases`, `Confirmed Deaths`,
              `Total Population`, `Positive Rate (%)`, `Attack Rate (per 100,000)`, `Fatality Rate (%)`) # Reorder columns
     
     datatable(data,
@@ -655,20 +732,34 @@ server <- function(input, output, session) {
   # Download CSV
   output$download_csv <- downloadHandler(
     filename = function() {
-      paste0("Malaria_Indicators_", input$year, "_", input$week, "_", input$region, ".csv")
+      # Sanitize inputs for filename to prevent issues with special characters
+      sanitized_year <- gsub("[^a-zA-Z0-9.-]", "", input$year)
+      sanitized_week <- gsub("[^a-zA-Z0-9.-]", "", input$week)
+      sanitized_region <- gsub("[^a-zA-Z0-9.-]", "", input$region)
+      paste0("Malaria_Indicators_", sanitized_year, "_W", sanitized_week, "_", sanitized_region, ".csv")
     },
     content = function(file) {
-      write_csv(filtered_data_for_plot_table(), file)
+      data_to_download <- filtered_data_for_plot_table() %>%
+        select(Year, week, ADM1_PCODE, region, district, Suspected_Cases, Confirmed_Cases, Confirmed_Deaths,
+               Total_Population, Positive_Rate, Confirmed_Attack_Rate, Fatality_Rate)
+      write_csv(data_to_download, file)
     }
   )
   
   # Download Excel
   output$download_excel <- downloadHandler(
     filename = function() {
-      paste0("Malaria_Indicators_", input$year, "_", input$week, "_", input$region, ".xlsx")
+      # Sanitize inputs for filename to prevent issues with special characters
+      sanitized_year <- gsub("[^a-zA-Z0-9.-]", "", input$year)
+      sanitized_week <- gsub("[^a-zA-Z0-9.-]", "", input$week)
+      sanitized_region <- gsub("[^a-zA-Z0-9.-]", "", input$region)
+      paste0("Malaria_Indicators_", sanitized_year, "_W", sanitized_week, "_", sanitized_region, ".xlsx")
     },
     content = function(file) {
-      write_xlsx(filtered_data_for_plot_table(), file)
+      data_to_download <- filtered_data_for_plot_table() %>%
+        select(Year, week, ADM1_PCODE, region, district, Suspected_Cases, Confirmed_Cases, Confirmed_Deaths,
+               Total_Population, Positive_Rate, Confirmed_Attack_Rate, Fatality_Rate)
+      write_xlsx(data_to_download, file)
     }
   )
   
