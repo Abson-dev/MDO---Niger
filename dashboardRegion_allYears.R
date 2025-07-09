@@ -18,7 +18,7 @@ library(RColorBrewer) # For better color palettes
 # --- Global Data Loading and Cleaning ---
 
 # Define file paths and sheet names for each year
-# IMPORTANT: Ensure these files (MDO 2023 S52.xls, MDO 2024 S43.xls) are in your working directory,
+# IMPORTANT: Ensure these files are in your working directory,
 # and the shapefile is in 'data/shp/' relative to your working directory.
 file_configs <- list(
   "2019" = list(file = "MDO_Niger Semaine 52 2019.xlsx", sheets = c("Palu", "Palu conf")),
@@ -238,7 +238,6 @@ combined_indicators <- health_data_for_shiny %>%
     Suspected_Cases = sum(Cases[Sheet %in% suspected_sheet_names], na.rm = TRUE),
     Confirmed_Cases = sum(Cases[Sheet %in% confirmed_sheet_names], na.rm = TRUE),
     Confirmed_Deaths = sum(Deaths[Sheet %in% confirmed_sheet_names], na.rm = TRUE),
-    # Sum unique population values per region, across suspected/confirmed sheets
     Total_Population = sum(unique(population), na.rm = TRUE),
     .groups = 'drop'
   ) %>%
@@ -266,10 +265,9 @@ combined_indicators <- combined_indicators %>%
 # Join combined_indicators with niger_shp to get ADM1_PCODE
 combined_indicators <- combined_indicators %>%
   left_join(
-    niger_shp %>% select(nom, ADM1_PCODE) %>% st_drop_geometry(), # Select ADM1_PCODE and drop geometry
+    niger_shp %>% select(nom, ADM1_PCODE) %>% st_drop_geometry(),
     by = c("region" = "nom")
   ) %>%
-  # Ensure ADM1_PCODE is at the beginning of the dataframe for better visibility
   select(Year, week, region, ADM1_PCODE, everything())
 
 # Save to Excel (This line is for initial data processing, not the app download)
@@ -279,19 +277,19 @@ write_xlsx(combined_indicators, path = "Malaria_Combined_Indicators.xlsx")
 
 # Define UI
 ui <- dashboardPage(
-  dashboardHeader(title = tags$a(href = "https://www.unicef.org/", # Changed link to UNICEF for relevance
+  dashboardHeader(title = tags$a(href = "https://www.unicef.org/",
                                  tags$img(src = "https://www.unicef.org/sites/default/files/styles/logo_mobile_retina/public/UNICEF_Logo_Blue.png?itok=xM9sQ1sC",
                                           height = "40px"),
                                  "Malaria Data Dashboard"),
-                  titleWidth = 350), # Adjust title width for logo
+                  titleWidth = 350),
   dashboardSidebar(
     sidebarMenu(
-      id = "tabs", # Add an ID to the sidebarMenu for active tab management
+      id = "tabs",
       menuItem("Dashboard Overview", tabName = "dashboard", icon = icon("dashboard")),
       menuItem("Data Explorer", tabName = "data_explorer", icon = icon("table")),
-      menuItem("How-to Guide", tabName = "how_to_guide", icon = icon("info-circle")), # New tab for how-to guide
-      menuItem("Information", tabName = "info", icon = icon("info-circle")), # Existing information tab
-      hr(), # Horizontal line for separation
+      menuItem("How-to Guide", tabName = "how_to_guide", icon = icon("info-circle")),
+      menuItem("Information", tabName = "info", icon = icon("info-circle")),
+      hr(),
       h4("Filters", style = "padding-left: 15px; color: #fff;"),
       selectInput("year", "Select Year:", choices = c("All", unique(combined_indicators$Year)), selected = "All"),
       selectInput("week", "Select Week:", choices = c("All", unique(combined_indicators$week)), selected = "All"),
@@ -318,13 +316,14 @@ ui <- dashboardPage(
     useShinyjs(),
     tags$head(
       tags$link(rel = "stylesheet", type = "text/css", href = "https://fonts.googleapis.com/css?family=Open+Sans"),
+      tags$script(src = "https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"), # Add Chart.js CDN
       tags$style(HTML("
         body { font-family: 'Open Sans', sans-serif; }
-        .content-wrapper { background-color: #f0f2f5; } /* Lighter background */
+        .content-wrapper { background-color: #f0f2f5; }
         .box {
           border-radius: 8px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.15); /* More pronounced shadow */
-          border-top: 3px solid #3c8dbc; /* Blue top border */
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          border-top: 3px solid #3c8dbc;
           margin-bottom: 20px;
         }
         .box-header .box-title {
@@ -346,15 +345,15 @@ ui <- dashboardPage(
           font-size: 16px;
         }
         .sidebar-menu .active a {
-          background-color: #007bff !important; /* Brighter active tab */
+          background-color: #007bff !important;
           color: #fff !important;
         }
         .download-btn {
-          width: 90%; /* Make download buttons wider */
+          width: 90%;
           margin-bottom: 10px;
         }
         .dataTables_wrapper .dataTables_filter input {
-          width: 300px; /* Wider search bar for DT */
+          width: 300px;
         }
         .shiny-notification {
           position: fixed;
@@ -377,6 +376,10 @@ ui <- dashboardPage(
           padding: 20px;
           margin-bottom: 20px;
         }
+        canvas {
+          max-width: 100%;
+          height: 400px !important;
+        }
       "))
     ),
     tabItems(
@@ -390,7 +393,8 @@ ui <- dashboardPage(
                 )
               ),
               fluidRow(
-                box(title = "Malaria Indicators by Region (Interactive Map)", width = 12, leafletOutput("map_plot", height = 600))
+                box(title = "Malaria Indicators by Region (Interactive Map)", width = 6, leafletOutput("map_plot", height = 400)),
+                box(title = "Malaria Metrics by Region (Bar Chart)", width = 6, uiOutput("bar_chart"))
               )
       ),
       tabItem(tabName = "data_explorer",
@@ -398,31 +402,29 @@ ui <- dashboardPage(
                 box(title = "Detailed Malaria Data Table", width = 12, DTOutput("data_table"))
               )
       ),
-      # New "How-to Guide" tab
       tabItem(tabName = "how_to_guide",
               fluidRow(
                 column(width = 12,
                        div(class = "info-box",
                            h2("How to Use This Malaria Data Dashboard"),
                            p("This guide will walk you through the key features and functionalities of the dashboard, helping you to effectively explore and analyze malaria data in Niger."),
-                           
                            h3("Phase 1: Getting Started - Dashboard Overview"),
                            tags$ul(
                              tags$li(tags$strong("Dashboard Overview Tab:"), " This is your starting point. It provides a visual summary of key malaria indicators. You'll see:"),
                              tags$ul(
                                tags$li(tags$strong("Malaria Metrics Over Time (Top Left):"), " A dynamic line plot showing trends for your selected metric across different years and weeks."),
                                tags$li(tags$strong("Malaria Metrics by Region (Static Map, Top Right):"), " A static map visualizing the average selected metric across regions of Niger. Regions with no data are shaded grey."),
-                               tags$li(tags$strong("Malaria Indicators by Region (Interactive Map, Bottom):"), " An interactive map allowing you to zoom, pan, and click on regions for detailed metric values.")
+                               tags$li(tags$strong("Malaria Indicators by Region (Interactive Map, Bottom Left):"), " An interactive map allowing you to zoom, pan, and click on regions for detailed metric values."),
+                               tags$li(tags$strong("Malaria Metrics by Region (Bar Chart, Bottom Right):"), " A bar chart showing the selected metric for each region, updated based on your year and week filters.")
                              ),
                              tags$li(tags$strong("Left Sidebar Filters:"), " Use the dropdown menus in the left sidebar to refine the data displayed in the plots and maps:"),
                              tags$ul(
                                tags$li(tags$strong("Select Year:"), " Choose a specific year or 'All' to see trends across all available years."),
                                tags$li(tags$strong("Select Week:"), " Filter data by a particular week within a year or view 'All' weeks."),
                                tags$li(tags$strong("Select Region:"), " Focus on a specific administrative region of Niger or view data for 'All' regions."),
-                               tags$li(tags$strong("Select Metric:"), " Switch between different malaria indicators like 'Confirmed Cases', 'Fatality Rate', 'Attack Rate', etc. The plots and maps will update dynamically based on your selection.")
+                               tags$li(tags$strong("Select Metric:"), " Switch between different malaria indicators like 'Confirmed Cases', 'Fatality Rate', 'Attack Rate', etc. The plots, maps, and bar chart will update dynamically based on your selection.")
                              )
                            ),
-                           
                            h3("Phase 2: Deep Dive - Data Explorer"),
                            tags$ul(
                              tags$li(tags$strong("Data Explorer Tab:"), " Navigate to this tab to view the aggregated malaria data in a detailed, interactive table."),
@@ -437,7 +439,6 @@ ui <- dashboardPage(
                              ),
                              tags$li("The table includes all calculated metrics along with `ADM1_PCODE` (Administrative Division 1 P-Code) for each region, providing unique identifiers.")
                            ),
-                           
                            h3("Phase 3: Understanding the Visualizations"),
                            tags$ul(
                              tags$li(tags$strong("Time Series Plot:"), " Observe trends over time. When 'All' years are selected, each line represents a different year, allowing for easy comparison of malaria patterns across years. Hover over data points to see specific values."),
@@ -446,9 +447,9 @@ ui <- dashboardPage(
                              tags$ul(
                                tags$li(tags$strong("Zoom/Pan:"), " Use your mouse wheel or the +/- controls to zoom in and out, and click-and-drag to pan the map."),
                                tags$li(tags$strong("Click on Regions:"), " Clicking on any region will open a popup displaying the region's name, its `ADM1_PCODE`, and the value of the currently selected malaria metric for that region. This is particularly useful for identifying specific regional data.")
-                             )
+                             ),
+                             tags$li(tags$strong("Bar Chart:"), " Displays the selected metric for each region in a bar format. Hover over bars to see exact values. The chart updates based on your year and week selections, showing averages when 'All' weeks are selected.")
                            ),
-                           
                            h3("Phase 4: Exporting Your Analysis"),
                            tags$ul(
                              tags$li(tags$strong("Download Data Section (Left Sidebar):"), " Once you have filtered the data to your interest, you can download it for further analysis or reporting."),
@@ -467,11 +468,12 @@ ui <- dashboardPage(
                 column(width = 12,
                        div(class = "info-box",
                            h3("About This Dashboard"),
-                           p("This dashboard provides an interactive visualization of malaria indicators in Niger, leveraging data from MDO 2023 and MDO 2024 reports."),
+                           p("This dashboard provides an interactive visualization of malaria indicators in Niger, leveraging data from MDO 2019-2024 reports."),
                            p("Key features include:"),
                            tags$ul(
                              tags$li("Time-series plots for various malaria metrics."),
                              tags$li("Static and interactive maps to visualize regional distribution of malaria indicators."),
+                             tags$li("A bar chart showing regional metrics for selected weeks or years."),
                              tags$li("A detailed data table for exploring the raw and aggregated data."),
                              tags$li("Download options for filtered data in CSV and Excel formats."),
                              tags$li("Comprehensive 'How-to Guide' for navigating the application.")
@@ -479,6 +481,10 @@ ui <- dashboardPage(
                            h3("Data Sources"),
                            p("The data used in this dashboard is derived from the following files:"),
                            tags$ul(
+                             tags$li("MDO_Niger Semaine 52 2019.xlsx"),
+                             tags$li("MDO_Niger Semaine 53 2020.xls"),
+                             tags$li("MDO_Niger Semaine 52 2021.xlsx"),
+                             tags$li("MDO_NIGER 2022 S52.xlsx"),
                              tags$li("MDO 2023 S52.xls"),
                              tags$li("MDO 2024 S43.xls")
                            ),
@@ -531,7 +537,7 @@ server <- function(input, output, session) {
     }
   })
   
-  # Reactive filtered data for maps (ignores region filter for broader overview)
+  # Reactive filtered data for maps and bar chart (ignores region filter for broader overview)
   filtered_data_for_maps <- reactive({
     data <- combined_indicators
     if (input$year != "All") {
@@ -575,19 +581,19 @@ server <- function(input, output, session) {
     plot_data <- data %>% arrange(Year, week)
     
     p <- plot_ly(plot_data, x = ~week, y = ~get(input$metric), type = 'scatter', mode = 'lines',
-                 color = ~as.factor(Year), # Color by year
-                 colors = RColorBrewer::brewer.pal(max(3, length(unique(plot_data$Year))), "Set1"), # Use Brewer palette
+                 color = ~as.factor(Year),
+                 colors = RColorBrewer::brewer.pal(max(3, length(unique(plot_data$Year))), "Set1"),
                  hoverinfo = 'text',
                  text = ~paste('Year: ', Year, '<br>Week: ', week, '<br>',
                                metric_display_names[input$metric], ': ', round(get(input$metric), 2))) %>%
       layout(
         title = list(text = plot_title, font = list(size = 16)),
-        xaxis = list(title = "Week", type = 'category', # Set x-axis title to "Week"
-                     tickvals = unique(plot_data$week)[seq(1, length(unique(plot_data$week)), by = 4)], # Show fewer ticks for readability
+        xaxis = list(title = "Week", type = 'category',
+                     tickvals = unique(plot_data$week)[seq(1, length(unique(plot_data$week)), by = 4)],
                      ticktext = unique(paste0("W", plot_data$week))[seq(1, length(unique(plot_data$week)), by = 4)]),
         yaxis = list(title = metric_display_names[input$metric]),
         legend = list(orientation = "h", x = 0, y = -0.2),
-        margin = list(b = 100) # Adjust bottom margin for legend
+        margin = list(b = 100)
       )
     p
   })
@@ -597,51 +603,65 @@ server <- function(input, output, session) {
     data <- filtered_data_for_maps()
     
     # Aggregate data by region based on current filters
-    agg_data <- data %>%
-      group_by(region) %>%
-      summarise(
-        Metric_Value = mean(get(input$metric), na.rm = TRUE), # Use mean for aggregation
-        .groups = 'drop'
-      ) %>%
-      mutate(region = toupper(region)) # Ensure region names are uppercase for joining
+    agg_data <- if (input$week == "All") {
+      data %>%
+        group_by(region) %>%
+        summarise(
+          Metric_Value = mean(get(input$metric), na.rm = TRUE),
+          .groups = 'drop'
+        ) %>%
+        mutate(region = toupper(region))
+    } else {
+      data %>%
+        group_by(region) %>%
+        summarise(
+          Metric_Value = first(get(input$metric)),
+          .groups = 'drop'
+        ) %>%
+        mutate(region = toupper(region))
+    }
     
     # Join with shapefile
     map_data <- niger_shp %>%
       left_join(agg_data, by = c("nom" = "region"))
     
     # Dynamic map title
-    map_title <- paste("Average", metric_display_names[input$metric], "by Region")
+    map_title <- paste(
+      ifelse(input$week == "All", "Average", "Weekly"),
+      metric_display_names[input$metric],
+      "by Region"
+    )
     if (input$year != "All") {
       map_title <- paste(map_title, "in", input$year)
     }
     if (input$week != "All") {
-      map_title <- paste(map_title, "Week", input$week)
+      map_title <- paste(map_title, "for Week", input$week)
     }
     
     # Create static map with ggplot2
     ggplot(data = map_data) +
-      geom_sf(aes(fill = Metric_Value), color = "white", lwd = 0.5) + # Add white border for regions
-      scale_fill_viridis_c( # Use viridis for better colorblind-friendliness
+      geom_sf(aes(fill = Metric_Value), color = "white", lwd = 0.5) +
+      scale_fill_viridis_c(
         option = "plasma",
-        na.value = "#CCCCCC", # Light grey for no data
+        na.value = "#CCCCCC",
         name = metric_display_names[input$metric]
       ) +
       theme_minimal() +
       labs(
         title = map_title,
-        caption = "Data source: MDO 2023-2024. Regions with no data are grey."
+        caption = "Data source: MDO 2019-2024. Regions with no data are grey."
       ) +
       theme(
         plot.title = element_text(hjust = 0.5, size = 16, face = "bold"),
         legend.position = "right",
         legend.title = element_text(size = 12),
         legend.text = element_text(size = 10),
-        panel.grid.major = element_blank(), # Remove grid lines
+        panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
-        axis.text = element_blank(), # Remove axis text
-        axis.title = element_blank() # Remove axis titles
+        axis.text = element_blank(),
+        axis.title = element_blank()
       )
-  }, bg = "transparent") # Set background to transparent for integration with dashboard
+  }, bg = "transparent")
   
   # Interactive map plot for selected metric by region
   output$map_plot <- renderLeaflet({
@@ -661,19 +681,19 @@ server <- function(input, output, session) {
     map_data <- st_make_valid(map_data)
     
     # Define color palette for the map
-    pal <- colorNumeric(palette = "YlGnBu", domain = map_data$Metric_Value, na.color = "#CCCCCC") # Use YlGnBu for a different feel
+    pal <- colorNumeric(palette = "YlGnBu", domain = map_data$Metric_Value, na.color = "#CCCCCC")
     
     # Create popup content
     popup_content <- paste0(
       "<b>Region:</b> ", map_data$nom, "<br>",
-      "<b>ADM1_PCODE:</b> ", map_data$ADM1_PCODE, "<br>", # Include ADM1_PCODE in popup
+      "<b>ADM1_PCODE:</b> ", map_data$ADM1_PCODE, "<br>",
       "<b>", metric_display_names[input$metric], ":</b> ",
       ifelse(is.na(map_data$Metric_Value), "No data", round(map_data$Metric_Value, 2))
     )
     
     # Create leaflet map
     leaflet(map_data) %>%
-      addProviderTiles(providers$CartoDB.Positron) %>% # Different base map for better aesthetics
+      addProviderTiles(providers$CartoDB.Positron) %>%
       addPolygons(
         fillColor = ~pal(Metric_Value),
         fillOpacity = 0.8,
@@ -692,7 +712,127 @@ server <- function(input, output, session) {
         position = "bottomright",
         labFormat = labelFormat(digits = 2)
       ) %>%
-      setView(lng = 8, lat = 17, zoom = 6) # Center map on Niger
+      setView(lng = 8, lat = 17, zoom = 6)
+  })
+  
+  # Bar chart for selected metric by region
+  output$bar_chart <- renderUI({
+    data <- filtered_data_for_maps()
+    
+    # Aggregate data by region
+    agg_data <- if (input$week == "All") {
+      data %>%
+        group_by(region) %>%
+        summarise(
+          Metric_Value = mean(get(input$metric), na.rm = TRUE),
+          .groups = 'drop'
+        ) %>%
+        mutate(region = toupper(region))
+    } else {
+      data %>%
+        group_by(region) %>%
+        summarise(
+          Metric_Value = first(get(input$metric)),
+          .groups = 'drop'
+        ) %>%
+        mutate(region = toupper(region))
+    }
+    
+    # Ensure all regions from shapefile are included, with NA for missing data
+    all_regions <- niger_shp %>% st_drop_geometry() %>% select(nom) %>% pull(nom)
+    agg_data <- tibble(region = all_regions) %>%
+      left_join(agg_data, by = "region") %>%
+      mutate(Metric_Value = ifelse(is.na(Metric_Value), 0, Metric_Value))
+    
+    # Prepare Chart.js configuration
+    chart_data <- list(
+      labels = agg_data$region,
+      datasets = list(
+        list(
+          label = metric_display_names[input$metric],
+          data = agg_data$Metric_Value,
+          backgroundColor = RColorBrewer::brewer.pal(8, "Set2"),
+          borderColor = RColorBrewer::brewer.pal(8, "Set2"),
+          borderWidth = 1
+        )
+      )
+    )
+    
+    # Dynamic chart title
+    chart_title <- paste(
+      ifelse(input$week == "All", "Average", "Weekly"),
+      metric_display_names[input$metric],
+      "by Region"
+    )
+    if (input$year != "All") {
+      chart_title <- paste(chart_title, "in", input$year)
+    }
+    if (input$week != "All") {
+      chart_title <- paste(chart_title, "for Week", input$week)
+    }
+    
+    # Generate unique canvas ID to avoid conflicts
+    canvas_id <- paste0("barChart_", sample(1:10000, 1))
+    
+    # Create Chart.js script
+    chart_script <- sprintf(
+      "
+      <canvas id='%s' height='400'></canvas>
+      <script>
+        var ctx = document.getElementById('%s').getContext('2d');
+        new Chart(ctx, {
+          type: 'bar',
+          data: %s,
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                beginAtZero: true,
+                title: {
+                  display: true,
+                  text: '%s'
+                }
+              },
+              x: {
+                title: {
+                  display: true,
+                  text: 'Region'
+                }
+              }
+            },
+            plugins: {
+              legend: {
+                display: true,
+                position: 'top'
+              },
+              title: {
+                display: true,
+                text: '%s'
+              },
+              tooltip: {
+                callbacks: {
+                  label: function(context) {
+                    var value = context.parsed.y;
+                    return '%s: ' + (value === 0 ? 'No data' : value.toFixed(2));
+                  }
+                }
+              }
+            }
+          }
+        });
+      </script>
+      ",
+      canvas_id,
+      canvas_id,
+      jsonlite::toJSON(chart_data, auto_unbox = TRUE),
+      metric_display_names[input$metric],
+      chart_title,
+      metric_display_names[input$metric]
+    )
+    
+    # Return HTML content
+    HTML(chart_script)
   })
   
   # Data table
@@ -702,29 +842,28 @@ server <- function(input, output, session) {
         "Year" = Year,
         "Week" = week,
         "Region" = region,
-        "ADM1 PCODE" = ADM1_PCODE, # Renamed for display
+        "ADM1 PCODE" = ADM1_PCODE,
         "Suspected Cases" = Suspected_Cases,
         "Confirmed Cases" = Confirmed_Cases,
         "Confirmed Deaths" = Confirmed_Deaths,
-        "Total Population" = Total_Population, # Renamed for clarity
+        "Total Population" = Total_Population,
         "Positive Rate (%)" = Positive_Rate,
         "Attack Rate (per 100,000)" = Confirmed_Attack_Rate,
         "Fatality Rate (%)" = Fatality_Rate
       ) %>%
-      # Ensure ADM1 PCODE is explicitly included and ordered as desired
       select(Year, Week, `ADM1 PCODE`, Region, district, `Suspected Cases`, `Confirmed Cases`, `Confirmed Deaths`,
-             `Total Population`, `Positive Rate (%)`, `Attack Rate (per 100,000)`, `Fatality Rate (%)`) # Reorder columns
+             `Total Population`, `Positive Rate (%)`, `Attack Rate (per 100,000)`, `Fatality Rate (%)`)
     
     datatable(data,
               options = list(
                 pageLength = 10,
                 autoWidth = TRUE,
-                scrollX = TRUE, # Enable horizontal scrolling for many columns
-                dom = 'lfrtip', # Show length, filter, table, info, pagination
-                lengthMenu = c(10, 25, 50, 100) # Options for number of rows per page
+                scrollX = TRUE,
+                dom = 'lfrtip',
+                lengthMenu = c(10, 25, 50, 100)
               ),
               rownames = FALSE,
-              filter = 'top' # Add filters on top of each column
+              filter = 'top'
     ) %>%
       formatRound(columns = c("Positive Rate (%)", "Attack Rate (per 100,000)", "Fatality Rate (%)"), digits = 2)
   })
@@ -732,7 +871,6 @@ server <- function(input, output, session) {
   # Download CSV
   output$download_csv <- downloadHandler(
     filename = function() {
-      # Sanitize inputs for filename to prevent issues with special characters
       sanitized_year <- gsub("[^a-zA-Z0-9.-]", "", input$year)
       sanitized_week <- gsub("[^a-zA-Z0-9.-]", "", input$week)
       sanitized_region <- gsub("[^a-zA-Z0-9.-]", "", input$region)
@@ -749,7 +887,6 @@ server <- function(input, output, session) {
   # Download Excel
   output$download_excel <- downloadHandler(
     filename = function() {
-      # Sanitize inputs for filename to prevent issues with special characters
       sanitized_year <- gsub("[^a-zA-Z0-9.-]", "", input$year)
       sanitized_week <- gsub("[^a-zA-Z0-9.-]", "", input$week)
       sanitized_region <- gsub("[^a-zA-Z0-9.-]", "", input$region)
@@ -772,9 +909,21 @@ server <- function(input, output, session) {
           h4("Data Loading Warnings/Errors"),
           tags$ul(lapply(error_messages, tags$li))
         ),
-        duration = NULL, # Persist until dismissed
+        duration = NULL,
         type = "warning",
         closeButton = TRUE
+      )
+    }
+  })
+  
+  # Display notification for no data
+  observe({
+    data <- filtered_data_for_maps()
+    if (nrow(data) == 0) {
+      showNotification(
+        "No data available for the selected filters. Try a different year or week.",
+        type = "warning",
+        duration = 5
       )
     }
   })
