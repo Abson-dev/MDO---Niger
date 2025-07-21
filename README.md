@@ -1,28 +1,20 @@
-# Malaria Surveillance Data Dashboard (Niger 2024)
+# Malaria Data Dashboard for Niger
 
- 
-*Interactive dashboard for visualizing malaria trends in Niger, 2024*  
-*Last Updated: 07:18 PM CEST, Friday, July 04, 2025*
+## Overview
+This repository contains a **Shiny application** built in R to analyze and visualize malaria data in Niger from 2019 to 2024. The application provides interactive dashboards, maps, forecasting, anomaly detection, and AI-powered recommendations to support public health decision-making. It leverages data from the Niger Ministry of Health's MDO reports and integrates geographic data for regional visualizations.
 
-Welcome to the **Malaria Surveillance Data Dashboard**, a Shiny application designed to analyze and visualize suspected malaria cases in Niger for 2024, using data from the `MDO 2024 S43.xls` Excel file (specifically the `Palu Susp` sheet). This dashboard transforms raw, complex epidemiological data into intuitive, interactive visualizations, enabling public health professionals to monitor malaria trends across districts with ease.
-
-**Date:** July 4, 2025  
-**Location:** Dakar, Senegal  
-**Developed for:** Médecins Sans Frontières (MSF)
-
-## 🌟 Why This Dashboard?
-
-Malaria remains a critical public health challenge in Niger. This dashboard empowers stakeholders by:
-- Providing **interactive visualizations** of suspected malaria cases, deaths, attack rates, and fatality rates.
-- Offering **district-level insights** through a user-friendly interface.
-- Enabling **data exploration** with searchable, sortable tables.
-- Delivering **clean, processed data** from complex Excel files, ready for analysis and reporting.
-
-Built with R and Shiny, the dashboard combines robust data processing with modern, responsive design to support evidence-based decision-making.
+Key features include:
+- **Interactive Visualizations**: Time-series plots, static and interactive maps, and bar charts to explore malaria metrics (e.g., Confirmed Cases, Attack Rate, Fatality Rate).
+- **Data Explorer**: An interactive table for detailed data exploration with filtering and sorting capabilities.
+- **Forecasting**: Predicts malaria trends up to 12 weeks using the Prophet library.
+- **Outbreak Alerts**: Detects anomalies in malaria metrics using the anomalize package.
+- **AI-Powered Recommendations**: Identifies high-risk regions based on Attack Rate, Positive Rate, Fatality Rate, and recent case trends, with actionable intervention suggestions.
+- **Natural Language Queries**: Allows users to ask questions about the data via an xAI API (requires an API key).
+- **Data Export**: Download filtered data in CSV or Excel formats.
 
 ## 📸 Dashboard Preview
 
-![Malaria Dashboard Screenshot](screenshots/dashboard.png) 
+![Malaria Dashboard Screenshot](screenshots/dashboard_new.png) 
 *Note: This is a placeholder image. To include your own screenshot, follow the instructions below:*
 - **Take a Screenshot**: Run the app (`app.R`), navigate to the desired tab (e.g., Overview or District Details), and capture a screenshot.
 - **Upload the Image**: Save the screenshot (e.g., as `screenshots/dashboard.png`) and upload it to a `screenshots` folder in your repository:
@@ -38,148 +30,135 @@ Built with R and Shiny, the dashboard combines robust data processing with moder
   ```
 This will display your custom image, showcasing the dashboard’s interface.
 
-## 🚀 Features
+## Data Sources
+The application uses the following datasets:
+- **Malaria Data**:
+  - `MDO_Niger Semaine 52 2019.xlsx`
+  - `MDO_Niger Semaine 53 2020.xls`
+  - `MDO_Niger Semaine 52 2021.xlsx`
+  - `MDO_NIGER 2022 S52.xlsx`
+  - `MDO 2023 S52.xls`
+  - `MDO 2024 S43.xls`
+- **Geographic Data**: Niger administrative level 1 boundaries from [Humanitarian Data Exchange (HDX)](https://data.humdata.org/dataset/niger-admin-level-1-boundaries) (`NER_admbnda_adm1_IGNN_20230720.shp`).
 
-- **Overview Tab**: Summarizes total cases, deaths, attack rates, and fatality rates across Niger, with a point-based plot for Cases or Deaths, emphasizing discrete weekly trends.
-- **District Details Tab**: Displays point-based plots for Cases, Deaths, Attack Rate, and Fatality Rate for a selected district, highlighting weekly data points.
-- **Data Table Tab**: Offers an interactive table for exploring the full cleaned dataset, with search, sort, and pagination capabilities.
-- **About Tab**: Details the data source, methodology, and contact information.
-- **Visualizations**: Uses `ggplot2` with `plotly` for interactive plots (zoom, pan, PNG download). Points are styled with a professional color palette (Cases: Blue, Deaths: Red, Attack Rate: Green, Fatality Rate: Purple) and a modern `bslib` theme.
-- **Data Processing**: Handles multi-level Excel headers, cleans data, and reshapes it into a tidy format using `tidyverse`.
+## Prerequisites
+To run the application locally, ensure you have the following:
+- **R**: Version 4.0.0 or higher.
+- **RStudio**: Recommended for running Shiny applications.
+- **Dependencies**: Install the required R packages listed below.
+- **Data Files**: Place the malaria data Excel files in the root directory and the shapefile in a `data/shp/` subdirectory relative to `app.R`.
+- **xAI API Key** (optional): Required for the "Ask AI" feature. Set it as an environment variable (`XAI_API_KEY`).
 
-## 📋 Prerequisites
-
-Before setting up the dashboard, ensure you have:
-- **R**: Version 4.0 or higher ([download from CRAN](https://cran.r-project.org/)).
-- **RStudio**: Recommended for running the app ([download from RStudio](https://rstudio.com/)).
-- **Excel File**: `MDO 2024 S43.xls` with the `Palu Susp` sheet containing malaria surveillance data.
-- **Internet Connection**: Required for installing R packages and loading Google Fonts for the UI.
-
-## 🛠 Setup Instructions
-
-Follow these steps to set up and run the dashboard:
-
-### 1. Clone the Repository
-Clone the repository to your local machine:
-```bash
-git clone https://github.com/your-username/your-repository-name.git
-cd your-repository-name
-```
-Replace `your-username` and `your-repository-name` with your actual GitHub details.
-
-### 2. Install R Packages
-Install the required R packages in R or RStudio:
+### Required R Packages
 ```R
-install.packages(c("shiny", "tidyverse", "readxl", "readr", "janitor", "DT", "plotly", "bslib", "scales"))
-```
-This installs:
-- `shiny`: Web application framework.
-- `tidyverse`: Data manipulation (`dplyr`, `tidyr`, etc.).
-- `readxl`: Excel file reading.
-- `readr`: Numeric parsing.
-- `janitor`: Column name cleaning.
-- `DT`: Interactive data tables.
-- `plotly`: Interactive plots.
-- `bslib`: Modern Bootstrap theming.
-- `scales`: Axis formatting.
-
-### 3. Place the Excel File
-Place `MDO 2024 S43.xls` in the repository’s root directory (same as `app.R`). If the file is elsewhere, update the `file_path` in `app.R`:
-```R
-file_path <- "path/to/your/MDO 2024 S43.xls"
+install.packages(c(
+  "tidyverse", "readxl", "readr", "janitor", "writexl",
+  "shiny", "shinydashboard", "shinythemes", "plotly",
+  "DT", "shinyjs", "sf", "leaflet", "ggplot2",
+  "RColorBrewer", "prophet", "anomalize", "httr",
+  "jsonlite", "cluster", "lubridate"
+))
 ```
 
-### 4. Run the Dashboard
-Open `app.R` in RStudio and click "Run App", or run from the R console:
-```R
-library(shiny)
-runApp()
-```
-The dashboard will open in your default web browser.
+## Installation
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/your-username/malaria-data-dashboard.git
+   cd malaria-data-dashboard
+   ```
 
-### 5. Explore the Dashboard
-- **Overview**: View aggregated statistics and select "Cases" or "Deaths" for a point-based plot of national trends.
-- **District Details**: Choose a district to see point-based plots for key metrics.
-- **Data Table**: Search, sort, and paginate the cleaned dataset.
-- **About**: Learn about the methodology and data source.
+2. **Place Data Files**:
+   - Copy the malaria data Excel files (listed above) into the root directory of the repository.
+   - Ensure the shapefile (`NER_admbnda_adm1_IGNN_20230720.shp`) is in the `data/shp/` directory.
 
-## 🧠 Technical Methodology
+3. **Set Up Environment**:
+   - Install R and RStudio if not already installed.
+   - Install the required R packages (see above).
+   - (Optional) For the "Ask AI" feature, set your xAI API key:
+     ```R
+     Sys.setenv(XAI_API_KEY = "your-api-key-here")
+     ```
+     You can obtain an API key from [xAI](https://x.ai/api).
 
-The dashboard processes complex malaria surveillance data through a robust pipeline:
+4. **Run the Application**:
+   - Open `app.R` in RStudio.
+   - Click the "Run App" button, or run the following in the R console:
+     ```R
+     library(shiny)
+     shiny::runApp("app.R")
+     ```
 
-### Data Loading
-- **Dynamic Header Extraction**: Reads the first five rows of `MDO 2024 S43.xls` (`Palu Susp` sheet) to construct column names. Fixed columns (`Region`, `District`, `Isocode`, `Année`, `Population`) are extracted from row 3, while weekly columns (`Semaine X_cas`, `Semaine X_deces`, etc.) are built from rows 3 and 5, accommodating varying numbers of weeks.
-- **Raw Data Import**: Loads data from row 6 onward, reading all columns as text to avoid type conversion errors. Column names are aligned dynamically, with warnings for mismatches.
+## Usage
+1. **Launch the App**:
+   - The application opens in a browser window with a dashboard interface branded with the UNICEF logo.
+   - A welcome notification provides options to view the "How-to Guide" or dismiss it.
 
-### Data Cleaning and Reshaping
-- **Filtering**: Removes summary rows (e.g., "Pays:", "Total") to retain district-level data.
-- **Name Standardization**: Uses `janitor::clean_names()` to normalize column names (e.g., "Taux d'attaque" to "taux_d_attaque").
-- **Type Conversion**: Converts `population` and weekly metrics to numeric using `readr::parse_number()` for robust handling of Excel formatting.
-- **Reshaping**: Transforms data from wide to long format with `pivot_longer()` (creating `Week` and `Metric` columns), then pivots to a wider format with `pivot_wider()` for one row per district per week, with columns for `Cases`, `Deaths`, `Attack_Rate`, and `Fatality_Rate`.
+2. **Navigate Tabs**:
+   - **Dashboard Overview**: View time-series plots, static and interactive maps, bar charts, and region clustering.
+   - **Data Explorer**: Explore the full dataset in an interactive table with search and filter options.
+   - **Forecast**: See 12-week predictions for selected malaria metrics.
+   - **Outbreak Alerts**: Identify unusual spikes in metrics indicating potential outbreaks.
+   - **Ask AI**: Query the data in natural language (requires xAI API key).
+   - **Recommendations**: View prioritized regions for intervention with actionable suggestions based on multiple metrics.
+   - **How-to Guide**: Detailed instructions on using the dashboard.
+   - **Information**: Background on the dashboard, methodology, and data sources.
 
-### Visualization
-- **Plots**: Uses `ggplot2` with `geom_point(size = 3, alpha = 0.9)` to display discrete weekly data points, without connecting lines or maximum value annotations. Plots are interactive via `plotly`, supporting zoom, pan, and PNG download.
-- **Styling**: Applies a modern theme (`bslib`, "Inter" font, `#F8F9FA` background, `#FFFFFF` panel) with a color palette (Cases: `#1F77B4`, Deaths: `#D62728`, Attack Rate: `#2CA02C`, Fatality Rate: `#9467BD`).
-- **Dynamic Axes**: X-axis shows weeks with breaks every 5 weeks; y-axis scales to 110% of the maximum value with comma-separated labels.
+3. **Apply Filters**:
+   - Use the sidebar to filter by **Year**, **Week**, **Region**, and **Metric** (e.g., Confirmed Cases, Attack Rate).
+   - Filters dynamically update visualizations and the data table.
 
-### Output
-- **Dashboard**: A Shiny app with four tabs for overview, district details, data table, and about information.
-- **Data Export**: The cleaned dataset is available for exploration within the app. (Optional CSV export can be added; see below.)
+4. **Export Data**:
+   - Download filtered data as CSV or Excel files using the sidebar buttons.
 
-## 🛠 Troubleshooting
+## Application Structure
+- **app.R**: The main Shiny application file containing both UI and server logic.
+- **data/shp/**: Directory for the Niger shapefile (`NER_admbnda_adm1_IGNN_20230720.shp`).
+- **Malaria Data Files**: Excel files in the root directory, processed to generate combined indicators.
 
-- **Excel File Not Found**:
-  - Ensure `MDO 2024 S43.xls` is in the correct directory.
-  - Add this check to `app.R`:
-    ```R
-    if (!file.exists(file_path)) {
-      stop("Excel file not found at: ", file_path)
-    }
-    ```
-- **Package Installation Issues**:
-  - Verify internet connectivity.
-  - Install packages individually: `install.packages("package-name")`.
-- **Plot Issues**:
-  - If plots are empty, check that the `Palu Susp` sheet contains valid data.
-  - Ensure `week` values are numeric (handled by `as.numeric(week)` in the app).
-- **Syntax Errors**:
-  - Confirm `app.R` has no stray text or missing commas.
-  - Ensure the file ends with a newline (add an empty line).
+## Methodology
+- **Data Processing**: Excel files are cleaned and reshaped using `tidyverse` and `readxl`. Region names are standardized to match the shapefile.
+- **Metrics**:
+  - Suspected Cases, Confirmed Cases, Confirmed Deaths.
+  - Positive Rate (%): (Confirmed Cases / Suspected Cases) * 100.
+  - Attack Rate (per 100,000): (Confirmed Cases / Population) * 100,000.
+  - Fatality Rate (%): (Confirmed Deaths / Confirmed Cases) * 100.
+- **Forecasting**: Uses the Prophet library for time-series predictions with yearly and weekly seasonality.
+- **Anomaly Detection**: Employs the anomalize package with STL decomposition and IQR method to detect outliers.
+- **Clustering**: Applies k-means clustering to group regions by similar metric patterns.
+- **Recommendations**: Combines Attack Rate, Positive Rate, Fatality Rate, and recent case trends into a weighted priority score to identify high-risk regions and suggest interventions.
 
-## 📂 Project Structure
+## Recommendations
+The "Recommendations" tab prioritizes regions for intervention based on:
+- **Attack Rate**: Incidence of confirmed cases per 100,000 population.
+- **Positive Rate**: Proportion of suspected cases confirmed.
+- **Fatality Rate**: Proportion of confirmed cases resulting in death.
+- **Case Trend**: Percentage change in confirmed cases over the last 4 weeks.
+Regions are assigned a priority score (0–1) and classified as High (≥0.7) or Moderate (≥0.4) risk, with tailored interventions (e.g., mosquito net distribution, enhanced testing).
 
-- `app.R`: Main Shiny application script.
-- `MDO 2024 S43.xls`: Data file (not included; provide your own).
-- `README.md`: This guide.
-- `screenshots/` (optional): Folder for dashboard screenshots.
+## Notes
+- Ensure the shapefile and Excel files are in the correct directories, as the application expects specific paths.
+- The "Ask AI" feature requires a valid xAI API key. Without it, the feature will return an error.
+- Some data files may have inconsistencies (e.g., missing weeks or regions). The application handles these gracefully and displays warnings for data loading issues.
+- The application is optimized for desktop browsers. Mobile responsiveness may be limited.
+
+## Contributing
+Contributions are welcome! Please:
+1. Fork the repository.
+2. Create a new branch (`git checkout -b feature/your-feature`).
+3. Commit your changes (`git commit -m "Add your feature"`).
+4. Push to the branch (`git push origin feature/your-feature`).
+5. Open a pull request.
+
+## License
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ## 📞 Contact
 
 For questions or feedback, contact Aboubacar Hema at [aboubacarhema94@gmail.com](mailto:aboubacarhema94@gmail.com).
 
-## 🔧 Potential Enhancements
 
-Want to extend the dashboard? Here are some ideas:
-- **CSV Export**: Add a download button for the cleaned dataset:
-  ```R
-  # UI, under Data Table Tab:
-  downloadButton("downloadData", "Download Full Data"),
-  # Server:
-  output$downloadData <- downloadHandler(
-    filename = function() { "malaria_data_niger_2024.csv" },
-    content = function(file) { write.csv(health_data_for_shiny, file, row.names = FALSE) }
-  )
-  ```
-- **Smoothed Trends**: Add a smoothed line alongside points:
-  ```R
-  geom_smooth(method = "loess", color = color, linetype = "dashed", size = 0.8, alpha = 0.2)
-  ```
-- **Bar Charts**: Integrate a `chart.js` bar chart for district comparisons (e.g., total cases by district).
 
-## 📜 License
 
-This project is licensed under the MIT License. See the `LICENSE` file for details (if applicable).
 
----
 
-*Contribute to this project by submitting pull requests or opening issues on GitHub. Let’s make malaria surveillance more accessible and actionable!*
+
