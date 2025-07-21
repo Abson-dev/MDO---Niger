@@ -15,6 +15,9 @@ Key features include:
 ## 📸 Dashboard Preview
 
 ![Malaria Dashboard Screenshot](screenshots/dashboard_new.png) 
+
+
+![Malaria Dashboard Screenshot](screenshots/dashboard_predict.png) 
 *Note: This is a placeholder image. To include your own screenshot, follow the instructions below:*
 - **Take a Screenshot**: Run the app (`app.R`), navigate to the desired tab (e.g., Overview or District Details), and capture a screenshot.
 - **Upload the Image**: Save the screenshot (e.g., as `screenshots/dashboard.png`) and upload it to a `screenshots` folder in your repository:
